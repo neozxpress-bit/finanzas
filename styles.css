@@ -253,12 +253,18 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .dialog .actions { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 16px; border-top: 1px solid var(--line); }
 .dialog .actions button { color: var(--accent); font-weight: 600; letter-spacing: .06em; padding: 12px 24px; font-size: 16px; }
 
-/* Deslizar para cambiar de período */
-.swipe-out-left { animation: outL .16s ease-in forwards; }
-.swipe-out-right { animation: outR .16s ease-in forwards; }
-.swipe-in-left { animation: inL .2s ease-out; }
-.swipe-in-right { animation: inR .2s ease-out; }
-@keyframes outL { to { transform: translateX(-30px); opacity: 0; } }
-@keyframes outR { to { transform: translateX(30px); opacity: 0; } }
-@keyframes inL { from { transform: translateX(30px); opacity: 0; } }
-@keyframes inR { from { transform: translateX(-30px); opacity: 0; } }
+
+/* ---------- Movimiento (como la app original) ---------- */
+.tx { display: block; width: 100%; text-align: left; padding: 12px 14px; }
+.tx:active { background: var(--card-2); }
+.tx-main { display: flex; align-items: center; gap: 12px; }
+.tx-icon { position: relative; flex: none; }
+.tx-icon .badge { position: absolute; right: -4px; bottom: -3px; width: 20px; height: 20px; border-radius: 50%; background: var(--card-2); border: 2px solid var(--card); font-size: 10px; display: grid; place-items: center; }
+.tx-cat { flex: 1; min-width: 0; font-weight: 700; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tx-amt { font-weight: 700; font-size: 16px; white-space: nowrap; }
+.tx-amt.expense { color: var(--text); }
+.tx-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tx-tags span { background: var(--chip); color: var(--text); font-size: 15px; padding: 4px 11px; border-radius: 9px; border: 1px solid rgba(31,255,122,.15); }
+.tx-note { color: var(--muted); font-size: 15px; margin-top: 8px; word-break: break-word; }
+.tx-acc { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.day-head { font-size: 15px; }

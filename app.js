@@ -402,7 +402,7 @@ function viewList() {
       ${limited.length ? limited.map(([date, list]) => {
         const net = list.reduce((s, t) => s + (t.kind === 'tx' ? (t.type === 'income' ? t.amount : -t.amount) : 0), 0);
         const d = parseDate(date);
-        return `<div class="day-head"><span>${d.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined })}</span>
+        return `<div class="day-head"><span>${d.getDate()} de ${MONTHS[d.getMonth()]} de ${d.getFullYear()} (${d.toLocaleDateString('es-CL', { weekday: 'short' }).replace('.', '')})</span>
           <span class="num">${money(net, { sign: true })}</span></div>
           <div class="card list">${list.map(rowHtml).join('')}</div>`;
       }).join('') : `<div class="empty">Sin movimientos para mostrar.</div>`}
@@ -424,13 +424,16 @@ function rowHtml(t) {
   }
   const c = catById(t.categoryId) || { name: 'Sin categoría', icon: 'other', color: '#888' };
   const a = accById(t.accountId);
-  return `<button class="item" data-edit-tx="${t.id}">
-    ${iconBubble(c.icon, c.color)}
-    <div class="grow">
-      <div class="ellipsis">${esc(t.note || c.name)}</div>
-      <div class="small muted ellipsis">${t.note ? esc(c.name) + ' · ' : ''}${esc(a?.name || '')}${(t.tags || []).length ? ' ' + t.tags.map((g) => `<span class="tag">#${esc(g)}</span>`).join('') : ''}</div>
+  const tags = t.tags || [];
+  return `<button class="tx" data-edit-tx="${t.id}">
+    <div class="tx-main">
+      <span class="tx-icon">${iconBubble(c.icon, c.color)}${t.hasPhoto ? '<span class="badge">📷</span>' : ''}</span>
+      <span class="tx-cat">${esc(c.name)}</span>
+      <span class="tx-amt num ${t.type}">${t.type === 'income' ? '+' : ''}${money(t.amount)}</span>
     </div>
-    <div class="num ${t.type}">${t.type === 'income' ? '+' : '−'}${money(t.amount)}</div>
+    ${tags.length ? `<div class="tx-tags">${tags.map((g) => `<span>${esc(g)}</span>`).join('')}</div>` : ''}
+    ${t.note ? `<div class="tx-note">${esc(t.note)}</div>` : ''}
+    ${UI.account === 'all' && a ? `<div class="tx-acc">${icon(a.icon)} ${esc(a.name)}</div>` : ''}
   </button>`;
 }
 
@@ -612,15 +615,7 @@ window.addEventListener('scroll', updateMini, { passive: true });
 })();
 
 function swipePeriod(dir) {
-  const target = UI.tab === 'home' ? $('.chart-card') : $('#view .wrap');
-  if (!target) return shiftPeriod(dir);
-  target.classList.add(dir === 1 ? 'swipe-out-left' : 'swipe-out-right');
-  setTimeout(() => {
-    shiftPeriod(dir);
-    const t2 = UI.tab === 'home' ? $('.chart-card') : $('#view .wrap');
-    t2?.classList.add(dir === 1 ? 'swipe-in-left' : 'swipe-in-right');
-    if (UI.tab === 'home') { const cl = $('.cat-list'); cl?.classList.add(dir === 1 ? 'swipe-in-left' : 'swipe-in-right'); }
-  }, 150);
+  shiftPeriod(dir); // cambio instantáneo, sin animación
 }
 
 // Delegación de eventos en la vista principal
@@ -1110,6 +1105,7 @@ async function parseMMBackup(buf) {
       categoryId: l.Category || (String(t.type).toLowerCase() === 'income' ? 'other_income' : 'other_expense'),
       note: (t.comment || '').trim(),
       tags: l.Tag.map((id) => tagNames[id]).filter(Boolean),
+      hasPhoto: !!l.Photo,
       created: t.created, modified: t.modified
     };
   });
