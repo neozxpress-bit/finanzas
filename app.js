@@ -596,29 +596,31 @@ function updateMini() {
 }
 window.addEventListener('scroll', updateMini, { passive: true });
 
-// Deslizar a izquierda/derecha para cambiar de período (Inicio y Movimientos)
+// Deslizar a izquierda/derecha = tocar la flecha ‹ o › (Inicio y Movimientos)
 (function swipe() {
-  let x0 = null, y0 = null, t0 = 0;
-  const canSwipe = (el) => (UI.tab === 'home' || UI.tab === 'list') && !el.closest('#sheet, .dialog-backdrop, input, select, .hbar') &&
-    UI.period !== 'custom' && UI.period !== 'all' && $('#sheet').hidden;
+  let x0 = null, y0 = null, horizontal = null;
+  const canSwipe = (el) => (UI.tab === 'home' || UI.tab === 'list') && $('#sheet').hidden &&
+    !el.closest('#sheet, .dialog-backdrop, input, select, textarea, .tabbar');
   document.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1 || !canSwipe(e.target)) { x0 = null; return; }
-    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
+    x0 = null;
+    if (e.touches.length !== 1 || !canSwipe(e.target)) return;
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; horizontal = null;
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (x0 === null || horizontal !== null) return;
+    const dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) horizontal = Math.abs(dx) > Math.abs(dy);
   }, { passive: true });
   document.addEventListener('touchend', (e) => {
     if (x0 === null) return;
     const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
     x0 = null;
-    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5 || Date.now() - t0 > 700) return;
-    const dir = dx < 0 ? 1 : -1; // izquierda = siguiente, derecha = anterior
-    if (dir === 1 && isCurrentOrFuture()) return;
-    swipePeriod(dir);
+    if (horizontal === false || Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
+    // Izquierda = siguiente (›), derecha = anterior (‹): exactamente como tocar la flecha
+    const arrow = $(`.period-nav .arrow[data-shift="${dx < 0 ? 1 : -1}"]`);
+    if (arrow && !arrow.disabled) arrow.click();
   }, { passive: true });
 })();
-
-function swipePeriod(dir) {
-  shiftPeriod(dir); // cambio instantáneo, sin animación
-}
 
 // Delegación de eventos en la vista principal
 document.addEventListener('click', (e) => {
