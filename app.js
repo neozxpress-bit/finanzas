@@ -111,6 +111,13 @@ function money(n, { sign = false } = {}) {
   if (!sign) return (n < 0 ? '−' : '') + s;
   return (n < 0 ? '−' : n > 0 ? '+' : '') + s;
 }
+// Monto corto para filas: "245.200" o "3,1 M"
+function short(n) {
+  const a = Math.abs(n);
+  const v = a >= 1e6 ? (a / 1e6).toLocaleString('es-CL', { maximumFractionDigits: 1 }) + ' M'
+    : a.toLocaleString('es-CL', { maximumFractionDigits: S.currency === 'CLP' ? 0 : 2 });
+  return (n < 0 ? '−' : '') + v;
+}
 // Formato abreviado como la app original: 24,8 MCLP$
 function compact(n) {
   if (Math.abs(n) < 1e6) return money(n);
@@ -351,7 +358,7 @@ function viewHome() {
               ${iconBubble(c.icon, c.color)}
               <span class="name">${esc(c.name)}</span>
               <span class="pct">${pct} %</span>
-              <span class="amt num">${compact(value)}</span>
+              <span class="amt num">${short(value)}</span>
               <span class="chev">${SVG.chev}</span>
             </button>${limitBar}${sub}
           </div>`;
@@ -583,6 +590,38 @@ function updateMini() {
   $('#mini').classList.toggle('show', !!d && d.getBoundingClientRect().bottom < 40);
 }
 window.addEventListener('scroll', updateMini, { passive: true });
+
+// Deslizar a izquierda/derecha para cambiar de período (Inicio y Movimientos)
+(function swipe() {
+  let x0 = null, y0 = null, t0 = 0;
+  const canSwipe = (el) => (UI.tab === 'home' || UI.tab === 'list') && !el.closest('#sheet, .dialog-backdrop, input, select, .hbar') &&
+    UI.period !== 'custom' && UI.period !== 'all' && $('#sheet').hidden;
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1 || !canSwipe(e.target)) { x0 = null; return; }
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5 || Date.now() - t0 > 700) return;
+    const dir = dx < 0 ? 1 : -1; // izquierda = siguiente, derecha = anterior
+    if (dir === 1 && isCurrentOrFuture()) return;
+    swipePeriod(dir);
+  }, { passive: true });
+})();
+
+function swipePeriod(dir) {
+  const target = UI.tab === 'home' ? $('.chart-card') : $('#view .wrap');
+  if (!target) return shiftPeriod(dir);
+  target.classList.add(dir === 1 ? 'swipe-out-left' : 'swipe-out-right');
+  setTimeout(() => {
+    shiftPeriod(dir);
+    const t2 = UI.tab === 'home' ? $('.chart-card') : $('#view .wrap');
+    t2?.classList.add(dir === 1 ? 'swipe-in-left' : 'swipe-in-right');
+    if (UI.tab === 'home') { const cl = $('.cat-list'); cl?.classList.add(dir === 1 ? 'swipe-in-left' : 'swipe-in-right'); }
+  }, 150);
+}
 
 // Delegación de eventos en la vista principal
 document.addEventListener('click', (e) => {
