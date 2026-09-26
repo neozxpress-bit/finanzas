@@ -17,7 +17,7 @@ const ICONS = {
   pet: '🐾', beauty: '💄', restaurant: '🍽️', fuel: '⛽', gift: '🎁', medicine: '💊', tools: '🛠️',
   music: '🎵', movie: '🎬', book: '📚', baby: '🍼', plant: '🪴', wifi: '📶', light: '💡', water: '💧',
   work: '💼', star: '⭐',
-  deposit: '💰', ethereum: '💎', parcel: '📦', rent: '🔑', shovel: '⛏️', toilet: '🚽'
+  deposit: '🐖', ethereum: '💎', parcel: '📦', rent: '🔑', shovel: '⛏️', toilet: '🚽'
 };
 const ICON_KEYS = Object.keys(ICONS);
 const COLORS = ['#f63535', '#ff2aaa', '#a788d6', '#4e1685', '#3b4de8', '#2e78cf', '#4895dd', '#0478ff',
@@ -1129,16 +1129,37 @@ async function parseMMBackup(buf) {
   }
   db.close();
 
-  return { version: 1, currency: settings.defaultCurrencyCode || 'CLP', accounts, categories, transactions, transfers };
+  const data = { version: 1, currency: settings.defaultCurrencyCode || 'CLP', accounts, categories, transactions, transfers };
+  emojiNamesToIcons(data);
+  return data;
+}
+
+// Si el nombre empieza con un emoji ("🚘Compra y venta"), ese emoji pasa a ser el ícono
+function emojiNamesToIcons(st) {
+  let changed = false;
+  for (const e of [...st.accounts, ...st.categories]) {
+    const m = /^\s*((?:\p{Extended_Pictographic}|\p{Regional_Indicator})(?:\uFE0F|\u200D\p{Extended_Pictographic}|\p{Emoji_Modifier})*)\s*/u.exec(e.name || '');
+    if (m && m[0].length < e.name.length) {
+      e.icon = m[1]; e.name = e.name.slice(m[0].length).trim(); changed = true;
+    }
+  }
+  return changed;
 }
 
 // ---------- Inicio ----------
 (async function init() {
   try { S = await DB.get('state'); } catch (e) { console.error(e); }
   if (!S) { S = defaultState(); await save(); }
+  if (emojiNamesToIcons(S)) await save();
   render();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    // Recargar una vez cuando se instala una versión nueva de la app
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController && !reloaded) { reloaded = true; location.reload(); }
+    });
+    navigator.serviceWorker.register('sw.js').then((r) => r.update()).catch(() => {});
   }
   if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
 })();
