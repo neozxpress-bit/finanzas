@@ -16,7 +16,8 @@ const ICONS = {
   online_wallet: '👝', cash: '💵', zcash: '🪙', credit_card: '💳', bitcoin: '₿', phone: '📱',
   pet: '🐾', beauty: '💄', restaurant: '🍽️', fuel: '⛽', gift: '🎁', medicine: '💊', tools: '🛠️',
   music: '🎵', movie: '🎬', book: '📚', baby: '🍼', plant: '🪴', wifi: '📶', light: '💡', water: '💧',
-  work: '💼', star: '⭐'
+  work: '💼', star: '⭐',
+  deposit: '💰', ethereum: '💎', parcel: '📦', rent: '🔑', shovel: '⛏️', toilet: '🚽'
 };
 const ICON_KEYS = Object.keys(ICONS);
 const COLORS = ['#f63535', '#ff2aaa', '#a788d6', '#4e1685', '#3b4de8', '#2e78cf', '#4895dd', '#0478ff',
@@ -102,7 +103,8 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const pad2 = (n) => String(n).padStart(2, '0');
 const isoDate = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
-const icon = (key) => ICONS[key] || key || '📦';
+// Ícono desconocido: si ya es un emoji se muestra tal cual; si es un nombre, un ícono genérico
+const icon = (key) => ICONS[key] || (key && /\p{Extended_Pictographic}/u.test(key) ? key : '🏷️');
 
 function currencySymbol() { return S.currency === 'CLP' ? 'CLP$' : S.currency; }
 function money(n, { sign = false } = {}) {
