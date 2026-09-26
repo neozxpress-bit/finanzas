@@ -246,8 +246,7 @@ function accountOptions() {
 
 function accountPicker() {
   const a = UI.account !== 'all' && accById(UI.account);
-  return `<label class="acct-picker"><span>${a ? icon(a.icon) : '💰'}</span><span class="ellipsis">${esc(a ? a.name : 'Total')}</span><span class="caret">▼</span>
-    <select data-role="account">${accountOptions()}</select></label>`;
+  return `<button class="acct-picker" data-role="pick-account"><span>${a ? icon(a.icon) : '💰'}</span><span class="ellipsis">${esc(a ? a.name : 'Total')}</span><span class="caret">▼</span></button>`;
 }
 
 function pageHead(title) {
@@ -383,8 +382,7 @@ function viewList() {
     <div class="wrap">
       <input class="search" type="search" placeholder="Buscar nota, etiqueta, categoría o monto" value="${esc(UI.search)}" data-role="search">
       <div>
-        <label class="filter-chip" style="position:relative">${esc(UI.account === 'all' ? 'Todas las cuentas' : accById(UI.account)?.name)} ▾
-          <select data-role="account" style="position:absolute;inset:0;opacity:0">${accountOptions()}</select></label>
+        <button class="filter-chip" data-role="pick-account">${esc(UI.account === 'all' ? 'Todas las cuentas' : accById(UI.account)?.name)} ▾</button>
         ${fc ? `<button class="filter-chip" data-role="clear-cat">${icon(fc.icon)} ${esc(fc.name)} ✕</button>` : ''}
         ${UI.tagFilter ? `<button class="filter-chip" data-role="clear-tag"># ${esc(UI.tagFilter === NO_TAG ? 'Sin etiqueta' : UI.tagFilter)} ✕</button>` : ''}
       </div>
@@ -492,6 +490,42 @@ function viewMore() {
     </div>`;
 }
 
+// ---------- Diálogo de selección de cuenta ----------
+function openAccountDialog() {
+  let sel = UI.account;
+  const accs = S.accounts.filter((a) => !a.archived).sort((a, b) => a.position - b.position);
+  const total = S.accounts.filter((a) => !a.ignoreInBalance && !a.archived).reduce((s, a) => s + accountBalance(a.id), 0);
+  const opts = [{ id: 'all', name: 'Total', icon: '💰', color: '#0c3a22', bal: total }]
+    .concat(accs.map((a) => ({ id: a.id, name: a.name, icon: icon(a.icon), color: a.color, bal: accountBalance(a.id) })));
+  const el = document.createElement('div');
+  el.className = 'dialog-backdrop';
+  const draw = () => {
+    el.innerHTML = `<div class="dialog" role="dialog" aria-label="Seleccione una cuenta">
+      <h3>Seleccione una cuenta</h3>
+      <div class="opts">${opts.map((o) => `<button class="opt ${o.id === sel ? 'sel' : ''}" data-id="${o.id}">
+        <span class="radio"></span><span class="icon" style="background:${o.color}">${o.icon}</span>
+        <span class="grow"><div class="name">${esc(o.name)}</div><div class="bal num ${o.bal < 0 ? 'neg' : ''}">${money(o.bal)}</div></span>
+      </button>`).join('')}</div>
+      <div class="actions"><button data-a="cancel">CANCELAR</button><button data-a="ok">SELECCIONAR</button></div>
+    </div>`;
+  };
+  draw();
+  document.body.appendChild(el);
+  const y = opts.findIndex((o) => o.id === sel);
+  if (y > 3) el.querySelector('.opt.sel')?.scrollIntoView({ block: 'center' });
+  el.addEventListener('click', (e) => {
+    if (e.target === el) return el.remove();
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.id) {
+      const opts2 = el.querySelector('.opts'); const st = opts2.scrollTop;
+      sel = b.dataset.id; draw(); el.querySelector('.opts').scrollTop = st;
+      return;
+    }
+    if (b.dataset.a === 'cancel') return el.remove();
+    if (b.dataset.a === 'ok') { UI.account = sel; el.remove(); render(); }
+  });
+}
+
 // ---------- Menú lateral ----------
 function openDrawer() {
   const items = [['home', '◔', 'Inicio'], ['list', '🧾', 'Movimientos'], ['accounts', '👛', 'Cuentas'], ['cats', '🏷️', 'Categorías'], ['more', '⚙️', 'Ajustes y datos']];
@@ -558,6 +592,7 @@ document.addEventListener('click', (e) => {
   if (t.dataset.role === 'menu') return openDrawer();
   if (t.dataset.go) return go(t.dataset.go);
   if (t.dataset.role === 'add') return openTx(null, UI.type);
+  if (t.dataset.role === 'pick-account') return openAccountDialog();
 
   const grp = t.parentElement;
   if (grp && t.dataset.v && grp.dataset.role === 'period') {

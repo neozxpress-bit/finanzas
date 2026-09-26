@@ -1,6 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#1f8a70"/>
-  <circle cx="256" cy="256" r="150" fill="none" stroke="#ffffff" stroke-opacity=".35" stroke-width="56"/>
-  <circle cx="256" cy="256" r="150" fill="none" stroke="#ffffff" stroke-width="56" stroke-dasharray="590 943" transform="rotate(-90 256 256)" stroke-linecap="round"/>
-  <text x="256" y="300" text-anchor="middle" font-family="-apple-system, Helvetica, Arial" font-weight="700" font-size="130" fill="#ffffff">$</text>
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="35%" r="75%"><stop offset="0" stop-color="#0c3a22"/><stop offset="1" stop-color="#050605"/></radialGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="10" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#1fff7a" stroke-opacity=".18" stroke-width="56"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#1fff7a" stroke-width="56" stroke-dasharray="590 943" transform="rotate(-90 256 256)" stroke-linecap="round" filter="url(#glow)"/>
+  <text x="256" y="300" text-anchor="middle" font-family="-apple-system, Helvetica, Arial" font-weight="700" font-size="130" fill="#eef3ef">$</text>
 </svg>
