@@ -1017,8 +1017,9 @@ async function importJSONFile(file) {
 }
 
 // Agrega movimientos de un archivo sin borrar nada. Omite los que ya están registrados:
-// mismo id, o misma cuenta + tipo + monto con fecha a ±1 día (cada uno cuenta una sola vez).
-function mergeTransactions(existing, incoming) {
+// mismo id, o misma cuenta + tipo + monto anotado hasta `before` días antes o `after` días después
+// de la fecha del banco (el banco suele registrar los gastos días más tarde). Cada uno cuenta una sola vez.
+function mergeTransactions(existing, incoming, { before = 1, after = 1 } = {}) {
   const DAY = 86400000;
   const used = new Set();
   const ids = new Set(existing.map((t) => t.id));
@@ -1026,9 +1027,14 @@ function mergeTransactions(existing, incoming) {
   for (const n of incoming) {
     if (ids.has(n.id)) { skipped.push(n); continue; }
     const d = parseDate(n.date).getTime();
-    const match = existing.find((t) => !used.has(t.id) && t.accountId === n.accountId && t.type === n.type &&
-      t.amount === n.amount && Math.abs(parseDate(t.date).getTime() - d) <= DAY);
-    if (match) { used.add(match.id); skipped.push(n); continue; }
+    let best = null, bestGap = Infinity;
+    for (const t of existing) {
+      if (used.has(t.id) || t.accountId !== n.accountId || t.type !== n.type || t.amount !== n.amount) continue;
+      const diff = Math.round((d - parseDate(t.date).getTime()) / DAY); // > 0: anotado antes que el banco
+      if (diff > before || diff < -after) continue;
+      if (Math.abs(diff) < bestGap) { best = t; bestGap = Math.abs(diff); }
+    }
+    if (best) { used.add(best.id); skipped.push(n); continue; }
     added.push(n);
   }
   return { added, skipped };
@@ -1049,7 +1055,7 @@ async function importAddFile(file) {
         note: t.note || '', tags: Array.isArray(t.tags) ? t.tags : [], created: t.created || now, modified: now
       };
     }).filter((t) => t.amount > 0 && accById(t.accountId));
-    const { added, skipped } = mergeTransactions(S.transactions, incoming);
+    const { added, skipped } = mergeTransactions(S.transactions, incoming, data.match || {});
     const accId = data.accountId;
     const acc = accById(accId);
     const before = acc ? accountBalance(accId) : 0;
