@@ -488,6 +488,9 @@ function viewMore() {
         <label class="item" style="cursor:pointer"><span class="icon sm" style="background:#3b4de8">⤓</span>
           <div class="grow">Importar desde Gestor de Gastos<div class="small muted">Copia .mmbackup o archivo MyFinance.db</div></div>
           <input type="file" data-role="import-mm" hidden></label>
+        <label class="item" style="cursor:pointer"><span class="icon sm" style="background:#12b857">＋</span>
+          <div class="grow">Agregar movimientos desde archivo<div class="small muted">Suma movimientos sin borrar ni duplicar los que ya tienes</div></div>
+          <input type="file" accept=".json,application/json" data-role="import-add" hidden></label>
         <button class="item" data-role="export-json"><span class="icon sm" style="background:#1f8a70">⤒</span>
           <div class="grow">Exportar copia de seguridad<div class="small muted">Archivo .json con todos tus datos</div></div></button>
         <label class="item" style="cursor:pointer"><span class="icon sm" style="background:#258877">↺</span>
@@ -673,6 +676,7 @@ document.addEventListener('change', async (e) => {
   if (t.dataset.role === 'currency') { S.currency = t.value; await save(); render(); }
   if (t.dataset.role === 'import-mm' && t.files[0]) { await importMMBackupFile(t.files[0]); t.value = ''; }
   if (t.dataset.role === 'import-json' && t.files[0]) { await importJSONFile(t.files[0]); t.value = ''; }
+  if (t.dataset.role === 'import-add' && t.files[0]) { await importAddFile(t.files[0]); t.value = ''; }
 });
 
 document.addEventListener('input', (e) => {
@@ -1012,6 +1016,63 @@ async function importJSONFile(file) {
   } catch (err) { alert('No se pudo leer el archivo: ' + err.message); }
 }
 
+// Agrega movimientos de un archivo sin borrar nada. Omite los que ya están registrados:
+// mismo id, o misma cuenta + tipo + monto con fecha a ±1 día (cada uno cuenta una sola vez).
+function mergeTransactions(existing, incoming) {
+  const DAY = 86400000;
+  const used = new Set();
+  const ids = new Set(existing.map((t) => t.id));
+  const added = [], skipped = [];
+  for (const n of incoming) {
+    if (ids.has(n.id)) { skipped.push(n); continue; }
+    const d = parseDate(n.date).getTime();
+    const match = existing.find((t) => !used.has(t.id) && t.accountId === n.accountId && t.type === n.type &&
+      t.amount === n.amount && Math.abs(parseDate(t.date).getTime() - d) <= DAY);
+    if (match) { used.add(match.id); skipped.push(n); continue; }
+    added.push(n);
+  }
+  return { added, skipped };
+}
+
+async function importAddFile(file) {
+  try {
+    const data = JSON.parse(await file.text());
+    if (data.kind !== 'finanzas-movimientos' || !Array.isArray(data.transactions)) throw new Error('No es un archivo de movimientos');
+    const now = new Date().toISOString();
+    const incoming = data.transactions.map((t) => {
+      const type = t.type === 'income' ? 'income' : 'expense';
+      const cat = catById(t.categoryId);
+      return {
+        id: String(t.id), type, amount: Math.abs(Number(t.amount) || 0), date: String(t.date).slice(0, 10),
+        accountId: t.accountId || data.accountId,
+        categoryId: cat && cat.type === type ? cat.id : (type === 'income' ? 'other_income' : 'other_expense'),
+        note: t.note || '', tags: Array.isArray(t.tags) ? t.tags : [], created: t.created || now, modified: now
+      };
+    }).filter((t) => t.amount > 0 && accById(t.accountId));
+    const { added, skipped } = mergeTransactions(S.transactions, incoming);
+    const accId = data.accountId;
+    const acc = accById(accId);
+    const before = acc ? accountBalance(accId) : 0;
+    const net = added.filter((t) => t.accountId === accId).reduce((s, t) => s + (t.type === 'income' ? t.amount : -t.amount), 0);
+    const after = before + net;
+    const list = (arr) => arr.slice(0, 8).map((t) => `• ${t.date.slice(8)}/${t.date.slice(5, 7)} ${t.note || ''} ${money(t.amount)}`).join('\n') + (arr.length > 8 ? `\n… y ${arr.length - 8} más` : '');
+    let msg = `Se agregarán ${added.length} movimiento${added.length === 1 ? '' : 's'}.`;
+    if (skipped.length) msg += `\nYa registrados (se omiten): ${skipped.length}\n${list(skipped)}`;
+    if (acc) {
+      msg += `\n\nSaldo ${acc.name}: ${money(before)} → ${money(after)}`;
+      if (typeof data.bankBalance === 'number') {
+        const diff = data.bankBalance - after;
+        msg += `\nSaldo en el banco: ${money(data.bankBalance)}` + (diff ? `\nDiferencia: ${money(diff, { sign: true })}` : '\n✓ Cuadra con el banco');
+      }
+    }
+    if (!added.length) return alert(msg.replace('Se agregarán 0 movimientos.', 'No hay movimientos nuevos para agregar.'));
+    if (!confirm(msg + '\n\n¿Agregar?')) return;
+    S.transactions.push(...added);
+    await save(); render();
+    toast(`${added.length} movimiento${added.length === 1 ? '' : 's'} agregado${added.length === 1 ? '' : 's'}`);
+  } catch (err) { alert('No se pudo leer el archivo: ' + err.message); }
+}
+
 async function wipe() {
   if (!confirm('¿Borrar TODOS los datos de este dispositivo? Esta acción no se puede deshacer.')) return;
   if (!confirm('¿Seguro? Te recomiendo exportar una copia antes.')) return;
@@ -1167,4 +1228,4 @@ function emojiNamesToIcons(st) {
 })();
 
 // Exponer para pruebas
-window.__finanzas = { parseMMBackup, get state() { return S; } };
+window.__finanzas = { parseMMBackup, mergeTransactions, get state() { return S; } };
