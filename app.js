@@ -1,5 +1,7 @@
 'use strict';
 
+const APP_VERSION = '12';
+
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
    Datos guardados localmente en IndexedDB.
@@ -501,6 +503,10 @@ function viewMore() {
         <button class="item" data-role="wipe"><span class="icon sm" style="background:#c0392b">✕</span>
           <div class="grow expense">Borrar todos los datos</div></button>
       </div>
+      <div class="card list" style="margin-top:18px">
+        <button class="item" data-role="update-app"><span class="icon sm" style="background:#12b857">⟳</span>
+          <div class="grow">Buscar actualización<div class="small muted">Versión ${APP_VERSION}</div></div></button>
+      </div>
       <p class="small muted" style="text-align:center;margin-top:18px">${counts}<br>Tus datos se guardan solo en este dispositivo.</p>
     </div>`;
 }
@@ -667,6 +673,7 @@ document.addEventListener('click', (e) => {
   if (t.dataset.role === 'export-json') return exportJSON();
   if (t.dataset.role === 'export-csv') return exportCSV();
   if (t.dataset.role === 'wipe') return wipe();
+  if (t.dataset.role === 'update-app') return updateApp();
 });
 
 document.addEventListener('change', async (e) => {
@@ -1077,6 +1084,16 @@ async function importAddFile(file) {
     await save(); render();
     toast(`${added.length} movimiento${added.length === 1 ? '' : 's'} agregado${added.length === 1 ? '' : 's'}`);
   } catch (err) { alert('No se pudo leer el archivo: ' + err.message); }
+}
+
+// Fuerza descargar la última versión (no toca tus datos, que están en IndexedDB)
+async function updateApp() {
+  toast('Buscando actualización…');
+  try {
+    for (const r of (await navigator.serviceWorker?.getRegistrations?.()) || []) await r.unregister();
+    for (const k of await caches.keys()) await caches.delete(k);
+  } catch (e) { console.error(e); }
+  location.replace(location.pathname + '?v=' + Date.now());
 }
 
 async function wipe() {
