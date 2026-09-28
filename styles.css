@@ -268,3 +268,10 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .tx-note { color: var(--muted); font-size: 15px; margin-top: 8px; word-break: break-word; }
 .tx-acc { color: var(--muted); font-size: 12px; margin-top: 6px; }
 .day-head { font-size: 15px; }
+
+/* Categorías grandes en "Nuevo movimiento" */
+.cat-grid.big { gap: 10px 6px; padding: 14px 8px 6px; }
+.cat-grid.big button { font-size: 12.5px; gap: 6px; }
+.cat-grid.big .icon { width: 60px; height: 60px; font-size: 30px; }
+.see-all { display: block; width: 100%; padding: 10px 0 14px; color: var(--accent); font-size: 14px; font-weight: 600; }
+.save-btn { margin-top: 16px; padding: 16px; font-size: 17px; box-shadow: 0 0 20px rgba(31,255,122,.35); }

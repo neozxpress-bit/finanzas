@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '13';
+const APP_VERSION = '14';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -727,6 +727,19 @@ function amountToInput(n) {
   return new Intl.NumberFormat('es-CL', { maximumFractionDigits: 2 }).format(n);
 }
 
+const TOP_CATS = 8;
+function categoryUsage(type) {
+  const since = new Date(); since.setMonth(since.getMonth() - 6);
+  const from = isoDate(since);
+  const count = (recent) => {
+    const m = new Map();
+    for (const t of S.transactions) if (t.type === type && (!recent || t.date >= from)) m.set(t.categoryId, (m.get(t.categoryId) || 0) + 1);
+    return m;
+  };
+  const recent = count(true);
+  return recent.size ? recent : count(false);
+}
+
 function topTags(n = 14) {
   const count = new Map();
   for (const t of S.transactions) for (const g of t.tags || []) count.set(g, (count.get(g) || 0) + 1);
@@ -743,34 +756,41 @@ function openTx(tx, type = 'expense') {
   };
 
   const draw = (sh) => {
-    const cats = S.categories.filter((c) => c.type === d.type && (!c.archived || c.id === d.categoryId)).sort((a, b) => a.position - b.position);
+    const all = S.categories.filter((c) => c.type === d.type && (!c.archived || c.id === d.categoryId)).sort((a, b) => a.position - b.position);
+    // Las más usadas primero (últimos 6 meses; si no hay datos, todo el historial)
+    const usage = categoryUsage(d.type);
+    const ranked = [...all].sort((a, b) => (usage.get(b.id) || 0) - (usage.get(a.id) || 0) || a.position - b.position);
+    let cats = d.showAll ? all : ranked.slice(0, TOP_CATS);
+    if (!d.showAll && d.categoryId && !cats.some((c) => c.id === d.categoryId)) cats = [...cats.slice(0, TOP_CATS - 1), catById(d.categoryId)];
     const accs = S.accounts.filter((a) => !a.archived || a.id === d.accountId).sort((a, b) => a.position - b.position);
     const tags = [...new Set([...d.tags, ...topTags()])];
     sh.innerHTML = `<div class="grip"></div>
       <div class="sheet-head">
         <button data-a="cancel">Cancelar</button>
         <h3>${isNew ? 'Nuevo' : 'Editar'} movimiento</h3>
-        <button data-a="save">Guardar</button>
+        <span style="width:70px"></span>
       </div>
       <div class="segmented type" data-a="type">
         <button data-v="expense" class="${d.type === 'expense' ? 'active' : ''}">Gasto</button>
         <button data-v="income" class="${d.type === 'income' ? 'active' : ''}">Ingreso</button>
       </div>
-      <input class="amount-input num ${d.type}" inputmode="${S.currency === 'CLP' ? 'numeric' : 'decimal'}" placeholder="$0" value="${amountToInput(d.amount)}" data-f="amount" autocomplete="off">
-      <div class="card">
-        <div class="cat-grid">
-          ${cats.map((c) => `<button data-cat="${c.id}" class="${d.categoryId === c.id ? 'sel' : ''}">${iconBubble(c.icon, c.color)}<span class="ellipsis">${esc(c.name)}</span></button>`).join('')}
-        </div>
-      </div>
-      <div class="card list" style="margin-top:12px">
+      <input class="amount-input num ${d.type}" type="text" inputmode="${S.currency === 'CLP' ? 'numeric' : 'decimal'}" pattern="[0-9]*" enterkeyhint="done" placeholder="$0" value="${amountToInput(d.amount)}" data-f="amount" autocomplete="off">
+      <div class="card list">
         <div class="field"><label>Cuenta</label><select data-f="accountId">${accs.map((a) => `<option value="${a.id}" ${a.id === d.accountId ? 'selected' : ''}>${icon(a.icon)} ${esc(a.name)}</option>`).join('')}</select></div>
         <div class="field"><label>Fecha</label><input type="date" data-f="date" value="${d.date}"></div>
         <div class="field"><label>Nota</label><input type="text" data-f="note" placeholder="Opcional" value="${esc(d.note)}"></div>
         <div class="field"><label>Etiquetas</label><input type="text" data-f="newtag" placeholder="Escribe y presiona Enter"></div>
         ${tags.length ? `<div class="chips">${tags.map((g) => `<button data-tag="${esc(g)}" class="${d.tags.includes(g) ? 'on' : ''}">${esc(g)}</button>`).join('')}</div>` : ''}
       </div>
-      ${isNew ? '' : `<button class="btn danger" data-a="delete" style="margin-top:12px">Eliminar movimiento</button>`}`;
-    if (isNew && !d.amount) setTimeout(() => $('[data-f="amount"]', sh)?.focus(), 250);
+      <h2>Categoría</h2>
+      <div class="card">
+        <div class="cat-grid big">
+          ${cats.map((c) => `<button data-cat="${c.id}" class="${d.categoryId === c.id ? 'sel' : ''}">${iconBubble(c.icon, c.color)}<span class="ellipsis">${esc(c.name)}</span></button>`).join('')}
+        </div>
+        ${all.length > TOP_CATS ? `<button class="see-all" data-a="toggle-cats">${d.showAll ? 'Ver menos ▴' : `Ver todas (${all.length}) ▾`}</button>` : ''}
+      </div>
+      <button class="btn save-btn" data-a="save">Guardar</button>
+      ${isNew ? '' : `<button class="btn danger" data-a="delete" style="margin-top:4px">Eliminar movimiento</button>`}`;
   };
 
   const collect = (sh) => {
@@ -784,15 +804,17 @@ function openTx(tx, type = 'expense') {
 
   openSheet('', (sh) => {
     draw(sh);
+    if (isNew) { const a = $('[data-f="amount"]', sh); a.focus({ preventScroll: true }); a.click(); }
     sh.onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.a === 'cancel') return closeSheet();
+      if (b.dataset.a === 'toggle-cats') { collect(sh); d.showAll = !d.showAll; const y = sh.scrollTop; draw(sh); sh.scrollTop = y; return; }
       if (b.closest('[data-a="type"]') && b.dataset.v) {
         collect(sh); d.type = b.dataset.v;
         if (catById(d.categoryId)?.type !== d.type) d.categoryId = null;
         return draw(sh);
       }
-      if (b.dataset.cat) { collect(sh); d.categoryId = b.dataset.cat; return draw(sh); }
+      if (b.dataset.cat) { collect(sh); d.categoryId = b.dataset.cat; const y = sh.scrollTop; draw(sh); sh.scrollTop = y; return; }
       if (b.dataset.tag !== undefined) {
         collect(sh); const g = b.dataset.tag;
         d.tags = d.tags.includes(g) ? d.tags.filter((x) => x !== g) : [...d.tags, g];
