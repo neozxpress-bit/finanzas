@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '15';
+const APP_VERSION = '16';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -66,8 +66,12 @@ const DB = {
   open() {
     if (this._db) return Promise.resolve(this._db);
     return new Promise((res, rej) => {
-      const r = indexedDB.open('finanzas', 1);
-      r.onupgradeneeded = () => r.result.createObjectStore('kv');
+      const r = indexedDB.open('finanzas', 2);
+      r.onupgradeneeded = () => {
+        const db = r.result;
+        if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+        if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos'); // id → { blob, type }
+      };
       r.onsuccess = () => { this._db = r.result; res(r.result); };
       r.onerror = () => rej(r.error);
     });
@@ -88,8 +92,51 @@ const DB = {
       tx.oncomplete = () => res();
       tx.onerror = () => rej(tx.error);
     });
-  }
+  },
+  // ----- Fotos -----
+  async photoTx(mode, fn) {
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('photos', mode);
+      const out = fn(tx.objectStore('photos'));
+      tx.oncomplete = () => res(out && 'result' in out ? out.result : undefined);
+      tx.onerror = () => rej(tx.error);
+    });
+  },
+  getPhoto(id) { return this.photoTx('readonly', (st) => st.get(id)); },
+  putPhotos(entries) { return this.photoTx('readwrite', (st) => { for (const [id, rec] of entries) st.put(rec, id); }); },
+  deletePhotos(ids) { return this.photoTx('readwrite', (st) => { for (const id of ids) st.delete(id); }); },
+  clearPhotos() { return this.photoTx('readwrite', (st) => { st.clear(); }); },
+  photoKeys() { return this.photoTx('readonly', (st) => st.getAllKeys()); }
 };
+
+// URLs de fotos ya cargadas (id → blob: URL)
+const photoURLs = new Map();
+async function photoURL(id) {
+  if (photoURLs.has(id)) return photoURLs.get(id);
+  const rec = await DB.getPhoto(id).catch(() => null);
+  if (!rec) return null;
+  const url = URL.createObjectURL(rec.blob);
+  photoURLs.set(id, url);
+  return url;
+}
+function forgetPhotoURL(id) { const u = photoURLs.get(id); if (u) URL.revokeObjectURL(u); photoURLs.delete(id); }
+
+// Reduce la foto (máx. 1600 px, JPEG) para no llenar el teléfono
+async function compressImage(file) {
+  try {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.82));
+    return blob && blob.size < file.size ? blob : file;
+  } catch { return file; }
+}
+
+const extFromType = (t) => ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/heic': 'heic', 'image/webp': 'webp' }[t] || 'jpg');
+const typeFromName = (n) => ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic', webp: 'image/webp' }[String(n).split('.').pop().toLowerCase()] || 'image/jpeg');
 
 let S = null; // estado persistente
 const UI = { tab: 'home', type: 'expense', period: 'month', anchor: new Date(), account: 'all', search: '', catFilter: null, tagFilter: null, open: new Set(), from: null, to: null };
@@ -431,7 +478,7 @@ function rowHtml(t) {
   const tags = t.tags || [];
   return `<button class="tx" data-edit-tx="${t.id}">
     <div class="tx-main">
-      <span class="tx-icon">${iconBubble(c.icon, c.color)}${t.hasPhoto ? '<span class="badge">📷</span>' : ''}</span>
+      <span class="tx-icon">${iconBubble(c.icon, c.color)}${(t.photos || []).length || t.hasPhoto ? '<span class="badge">📷</span>' : ''}</span>
       <span class="tx-cat">${esc(c.name)}</span>
       <span class="tx-amt num ${t.type}">${t.type === 'income' ? '+' : ''}${money(t.amount)}</span>
     </div>
@@ -490,14 +537,17 @@ function viewMore() {
         <label class="item" style="cursor:pointer"><span class="icon sm" style="background:#3b4de8">⤓</span>
           <div class="grow">Importar desde Gestor de Gastos<div class="small muted">Copia .mmbackup o archivo MyFinance.db</div></div>
           <input type="file" data-role="import-mm" hidden></label>
+        <label class="item" style="cursor:pointer"><span class="icon sm" style="background:#ec8207">📷</span>
+          <div class="grow">Recuperar fotos de Gestor de Gastos<div class="small muted">Agrega las fotos de una copia .mmbackup sin cambiar tus datos</div></div>
+          <input type="file" data-role="import-photos" hidden></label>
         <label class="item" style="cursor:pointer"><span class="icon sm" style="background:#12b857">＋</span>
           <div class="grow">Agregar movimientos desde archivo<div class="small muted">Suma movimientos sin borrar ni duplicar los que ya tienes</div></div>
           <input type="file" accept=".json,application/json" data-role="import-add" hidden></label>
         <button class="item" data-role="export-json"><span class="icon sm" style="background:#1f8a70">⤒</span>
-          <div class="grow">Exportar copia de seguridad<div class="small muted">Archivo .json con todos tus datos</div></div></button>
+          <div class="grow">Exportar copia de seguridad<div class="small muted">Todos tus datos y fotos (.json o .zip)</div></div></button>
         <label class="item" style="cursor:pointer"><span class="icon sm" style="background:#258877">↺</span>
-          <div class="grow">Restaurar copia de seguridad<div class="small muted">Desde un archivo .json exportado</div></div>
-          <input type="file" accept=".json,application/json" data-role="import-json" hidden></label>
+          <div class="grow">Restaurar copia de seguridad<div class="small muted">Desde un archivo .json o .zip exportado</div></div>
+          <input type="file" accept=".json,.zip,application/json,application/zip" data-role="import-json" hidden></label>
         <button class="item" data-role="export-csv"><span class="icon sm" style="background:#ec8207">▦</span>
           <div class="grow">Exportar a Excel (CSV)</div></button>
         <button class="item" data-role="wipe"><span class="icon sm" style="background:#c0392b">✕</span>
@@ -684,6 +734,7 @@ document.addEventListener('change', async (e) => {
   if (t.dataset.role === 'import-mm' && t.files[0]) { await importMMBackupFile(t.files[0]); t.value = ''; }
   if (t.dataset.role === 'import-json' && t.files[0]) { await importJSONFile(t.files[0]); t.value = ''; }
   if (t.dataset.role === 'import-add' && t.files[0]) { await importAddFile(t.files[0]); t.value = ''; }
+  if (t.dataset.role === 'import-photos' && t.files[0]) { await importMMPhotosFile(t.files[0]); t.value = ''; }
 });
 
 document.addEventListener('input', (e) => {
@@ -777,11 +828,13 @@ function topTags(n = 14) {
 // ----- Movimiento -----
 function openTx(tx, type = 'expense') {
   const isNew = !tx;
-  const d = tx ? { ...tx, tags: [...(tx.tags || [])] } : {
+  const d = tx ? { ...tx, tags: [...(tx.tags || [])], photos: [...(tx.photos || [])] } : {
     id: uid(), type, amount: 0, date: isoDate(new Date()),
     accountId: UI.account !== 'all' ? UI.account : (S.lastAccount && accById(S.lastAccount) ? S.lastAccount : S.accounts[0]?.id),
-    categoryId: null, note: '', tags: []
+    categoryId: null, note: '', tags: [], photos: []
   };
+  const newPhotos = new Map(); // fotos nuevas, se guardan al tocar Guardar
+  const removedPhotos = new Set();
 
   const draw = (sh) => {
     const all = S.categories.filter((c) => c.type === d.type && (!c.archived || c.id === d.categoryId)).sort((a, b) => a.position - b.position);
@@ -809,6 +862,11 @@ function openTx(tx, type = 'expense') {
         <div class="field"><label>Etiquetas</label><input type="text" data-f="newtag" placeholder="Escribe y presiona Enter"></div>
         <div class="chips" data-role="tag-chips">${tagChips(d.tags, '')}</div>
       </div>
+      <h2>Fotos</h2>
+      <div class="card photo-strip">
+        ${d.photos.map((id) => `<button class="thumb" data-photo="${id}"><img alt="" data-src="${id}"></button>`).join('')}
+        <label class="thumb add">📷<span>Agregar</span><input type="file" accept="image/*" multiple hidden data-f="photo-input"></label>
+      </div>
       <h2>Categoría</h2>
       <div class="card">
         <div class="cat-grid big">
@@ -818,6 +876,7 @@ function openTx(tx, type = 'expense') {
       </div>
       <button class="btn save-btn" data-a="save">Guardar</button>
       ${isNew ? '' : `<button class="btn danger" data-a="delete" style="margin-top:4px">Eliminar movimiento</button>`}`;
+    sh.querySelectorAll('img[data-src]').forEach(async (img) => { const u = await photoURL(img.dataset.src); if (u) img.src = u; });
   };
 
   const collect = (sh) => {
@@ -835,6 +894,14 @@ function openTx(tx, type = 'expense') {
     sh.onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.a === 'cancel') return closeSheet();
+      if (b.dataset.photo) {
+        return openPhotoViewer(b.dataset.photo, () => {
+          collect(sh); d.photos = d.photos.filter((x) => x !== b.dataset.photo);
+          if (newPhotos.has(b.dataset.photo)) { newPhotos.delete(b.dataset.photo); forgetPhotoURL(b.dataset.photo); }
+          else removedPhotos.add(b.dataset.photo);
+          const y = sh.scrollTop; draw(sh); sh.scrollTop = y;
+        });
+      }
       if (b.dataset.a === 'toggle-cats') { collect(sh); d.showAll = !d.showAll; const y = sh.scrollTop; draw(sh); sh.scrollTop = y; return; }
       if (b.closest('[data-a="type"]') && b.dataset.v) {
         collect(sh); d.type = b.dataset.v;
@@ -851,6 +918,7 @@ function openTx(tx, type = 'expense') {
       if (b.dataset.a === 'delete') {
         if (!confirm('¿Eliminar este movimiento?')) return;
         S.transactions = S.transactions.filter((x) => x.id !== d.id);
+        const ids = (tx?.photos || []); if (ids.length) { await DB.deletePhotos(ids).catch(() => {}); ids.forEach(forgetPhotoURL); }
         await save(); closeSheet(); render(); return toast('Movimiento eliminado');
       }
       if (b.dataset.a === 'save') {
@@ -859,13 +927,31 @@ function openTx(tx, type = 'expense') {
         if (!d.categoryId) return toast('Elige una categoría');
         if (!d.accountId) return toast('Crea una cuenta primero');
         const now = new Date().toISOString();
-        const rec = { id: d.id, type: d.type, amount: d.amount, date: d.date, accountId: d.accountId, categoryId: d.categoryId, note: d.note, tags: d.tags, created: d.created || now, modified: now };
+        const rec = { id: d.id, type: d.type, amount: d.amount, date: d.date, accountId: d.accountId, categoryId: d.categoryId, note: d.note, tags: d.tags, photos: d.photos, created: d.created || now, modified: now };
+        if (d.hasPhoto && !d.photos.length && !removedPhotos.size) rec.hasPhoto = true;
+        try {
+          const toAdd = [...newPhotos].filter(([id]) => d.photos.includes(id));
+          if (toAdd.length) await DB.putPhotos(toAdd);
+          if (removedPhotos.size) { await DB.deletePhotos([...removedPhotos]); removedPhotos.forEach(forgetPhotoURL); }
+        } catch (err) { return alert('No se pudo guardar la foto: ' + err.message); }
         const i = S.transactions.findIndex((x) => x.id === d.id);
         if (i >= 0) S.transactions[i] = rec; else S.transactions.push(rec);
         S.lastAccount = d.accountId;
         await save(); closeSheet(); render();
         toast(isNew ? 'Movimiento guardado' : 'Cambios guardados');
       }
+    };
+    sh.onchange = async (e) => {
+      if (e.target.dataset.f !== 'photo-input' || !e.target.files.length) return;
+      collect(sh);
+      for (const f of e.target.files) {
+        const blob = await compressImage(f);
+        const id = uid();
+        newPhotos.set(id, { blob, type: blob.type || typeFromName(f.name) });
+        photoURLs.set(id, URL.createObjectURL(blob));
+        d.photos.push(id);
+      }
+      const y = sh.scrollTop; draw(sh); sh.scrollTop = y;
     };
     sh.onkeydown = (e) => {
       if (e.key === 'Enter' && e.target.dataset.f === 'newtag') {
@@ -883,6 +969,21 @@ function openTx(tx, type = 'expense') {
       }
       if (e.target.dataset.f === 'newtag') $('[data-role="tag-chips"]', sh).innerHTML = tagChips(d.tags, e.target.value);
     };
+  });
+}
+
+// ----- Visor de fotos -----
+async function openPhotoViewer(id, onDelete) {
+  const el = document.createElement('div');
+  el.className = 'photo-viewer';
+  el.innerHTML = `<img alt="">
+    <div class="pv-bar"><button data-a="del">🗑 Eliminar</button><button data-a="close">Cerrar</button></div>`;
+  document.body.appendChild(el);
+  const u = await photoURL(id); if (u) el.querySelector('img').src = u;
+  el.addEventListener('click', (e) => {
+    const a = e.target.closest('button')?.dataset.a;
+    if (a === 'del') { if (!confirm('¿Eliminar esta foto?')) return; el.remove(); onDelete(); return; }
+    if (a === 'close' || e.target === el) el.remove();
   });
 }
 
@@ -1045,16 +1146,35 @@ function openCategory(cat, type) {
 }
 
 // ---------- Exportar / importar ----------
-function download(name, content, mime) {
-  const blob = new Blob([content], { type: mime });
+async function download(name, content, mime) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type: mime });
+  // En iPhone, el menú Compartir permite "Guardar en Archivos"
+  try {
+    const file = new File([blob], name, { type: mime });
+    if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file] }); return; }
+  } catch (err) { if (err.name === 'AbortError') return; }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
-function exportJSON() {
-  download(`finanzas-${isoDate(new Date())}.json`, JSON.stringify(S, null, 1), 'application/json');
+async function exportJSON() {
+  const json = JSON.stringify(S, null, 1);
+  const ids = (await DB.photoKeys().catch(() => [])) || [];
+  if (!ids.length) return download(`finanzas-${isoDate(new Date())}.json`, json, 'application/json');
+  // Con fotos: un .zip con finanzas.json + photos/
+  toast('Preparando copia con fotos…');
+  if (!window.fflate) await loadScript(FFLATE_URL);
+  const files = { 'finanzas.json': fflate.strToU8(json) }, types = {};
+  for (const id of ids) {
+    const rec = await DB.getPhoto(id);
+    if (!rec) continue;
+    types[id] = rec.type;
+    files['photos/' + id] = [new Uint8Array(await rec.blob.arrayBuffer()), { level: 0 }];
+  }
+  files['photos.json'] = fflate.strToU8(JSON.stringify(types));
+  download(`finanzas-${isoDate(new Date())}.zip`, new Blob([fflate.zipSync(files)], { type: 'application/zip' }), 'application/zip');
 }
 
 function exportCSV() {
@@ -1072,9 +1192,23 @@ function exportCSV() {
 
 async function importJSONFile(file) {
   try {
-    const data = JSON.parse(await file.text());
+    const buf = new Uint8Array(await file.arrayBuffer());
+    let data, photos = [];
+    if (buf[0] === 0x50 && buf[1] === 0x4b) { // copia .zip con fotos
+      if (!window.fflate) await loadScript(FFLATE_URL);
+      const z = fflate.unzipSync(buf);
+      data = JSON.parse(fflate.strFromU8(z['finanzas.json']));
+      const types = z['photos.json'] ? JSON.parse(fflate.strFromU8(z['photos.json'])) : {};
+      for (const [name, bytes] of Object.entries(z)) {
+        if (!name.startsWith('photos/') || name.endsWith('/')) continue;
+        const id = name.slice(7), type = types[id] || 'image/jpeg';
+        photos.push([id, { blob: new Blob([bytes], { type }), type }]);
+      }
+    } else data = JSON.parse(new TextDecoder().decode(buf));
     if (!Array.isArray(data.transactions) || !Array.isArray(data.accounts)) throw new Error('Formato no válido');
-    if (!confirm(`Esto reemplazará tus datos actuales con ${data.transactions.length} movimientos. ¿Continuar?`)) return;
+    if (!confirm(`Esto reemplazará tus datos actuales con ${data.transactions.length} movimientos${photos.length ? ` y ${photos.length} fotos` : ''}. ¿Continuar?`)) return;
+    await DB.clearPhotos(); photoURLs.forEach((u) => URL.revokeObjectURL(u)); photoURLs.clear();
+    if (photos.length) await DB.putPhotos(photos);
     S = { ...defaultState(), ...data };
     await save(); render(); toast('Copia restaurada');
   } catch (err) { alert('No se pudo leer el archivo: ' + err.message); }
@@ -1156,6 +1290,7 @@ async function updateApp() {
 async function wipe() {
   if (!confirm('¿Borrar TODOS los datos de este dispositivo? Esta acción no se puede deshacer.')) return;
   if (!confirm('¿Seguro? Te recomiendo exportar una copia antes.')) return;
+  await DB.clearPhotos().catch(() => {}); photoURLs.clear();
   S = defaultState(); await save(); render(); toast('Datos borrados');
 }
 
@@ -1170,16 +1305,18 @@ function loadScript(src) {
 }
 
 const SQLJS_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/';
-const FFLATE_URL = 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js';
+const FFLATE_URL = 'vendor/fflate.js';
 
 async function importMMBackupFile(file) {
   try {
     toast('Leyendo copia de seguridad…');
     const buf = new Uint8Array(await file.arrayBuffer());
     const data = await parseMMBackup(buf);
-    const msg = `Encontré ${data.transactions.length} movimientos, ${data.accounts.length} cuentas, ${data.categories.length} categorías y ${data.transfers.length} transferencias.\n\n` +
+    const msg = `Encontré ${data.transactions.length} movimientos, ${data.accounts.length} cuentas, ${data.categories.length} categorías, ${data.transfers.length} transferencias y ${data.photoBlobs.size} fotos.\n\n` +
       `Esto reemplazará los datos actuales de la app. ¿Importar?`;
     if (!confirm(msg)) return;
+    await DB.clearPhotos(); photoURLs.forEach((u) => URL.revokeObjectURL(u)); photoURLs.clear();
+    if (data.photoBlobs.size) await DB.putPhotos([...data.photoBlobs]);
     S = { ...defaultState(), ...data };
     UI.account = 'all'; UI.anchor = new Date();
     await save(); render(); toast('¡Importación completa!');
@@ -1189,13 +1326,40 @@ async function importMMBackupFile(file) {
   }
 }
 
+// Agrega a tus movimientos actuales las fotos de una copia de Gestor de Gastos, sin reemplazar nada
+async function importMMPhotosFile(file) {
+  try {
+    toast('Leyendo fotos de la copia…');
+    const data = await parseMMBackup(new Uint8Array(await file.arrayBuffer()));
+    if (!data.photoBlobs.size) return alert('Esta copia no trae fotos. Usa el archivo .mmbackup (el .db no incluye fotos).');
+    const byId = new Map(S.transactions.map((t) => [t.id, t]));
+    const toStore = []; let txCount = 0, missing = 0;
+    for (const t of data.transactions) {
+      if (!t.photos.length) continue;
+      const mine = byId.get(t.id);
+      if (!mine) { missing += t.photos.length; continue; }
+      const have = new Set(mine.photos || []);
+      const add = t.photos.filter((id) => !have.has(id));
+      if (!add.length) continue;
+      mine.photos = [...have, ...add]; txCount++;
+      for (const id of add) toStore.push([id, data.photoBlobs.get(id)]);
+    }
+    if (!toStore.length) return alert('Tus movimientos ya tienen todas las fotos de esta copia.');
+    let msg = `Se agregarán ${toStore.length} fotos a ${txCount} movimientos.`;
+    if (missing) msg += `\n${missing} fotos son de movimientos que ya no están en la app y se omitirán.`;
+    if (!confirm(msg + '\n\nNo se borra ni cambia nada más. ¿Continuar?')) return;
+    await DB.putPhotos(toStore);
+    await save(); render(); toast(`${toStore.length} fotos recuperadas`);
+  } catch (err) { console.error(err); alert('No se pudieron importar las fotos: ' + err.message); }
+}
+
 async function parseMMBackup(buf) {
   if (!window.fflate) await loadScript(FFLATE_URL);
   if (!window.initSqlJs) await loadScript(SQLJS_BASE + 'sql-wasm.js');
 
   const isSqlite = String.fromCharCode(...buf.subarray(0, 15)) === 'SQLite format 3';
   const SQL = await initSqlJs({ locateFile: (f) => SQLJS_BASE + f });
-  let dbBytes = buf;
+  let dbBytes = buf, zipBytes = null;
   if (!isSqlite) {
   // Buscar la firma ZIP "PK\x03\x04" (la cabecera suele ser de 8 bytes)
   let start = -1;
@@ -1203,7 +1367,8 @@ async function parseMMBackup(buf) {
     if (buf[i] === 0x50 && buf[i + 1] === 0x4b && buf[i + 2] === 0x03 && buf[i + 3] === 0x04) { start = i; break; }
   }
   if (start < 0) throw new Error('El archivo no parece una copia de Gestor de Gastos.');
-  const files = fflate.unzipSync(buf.subarray(start), { filter: (f) => f.name.endsWith('.db') });
+  zipBytes = buf.subarray(start);
+  const files = fflate.unzipSync(zipBytes, { filter: (f) => f.name.endsWith('.db') });
   const dbName = Object.keys(files)[0];
   if (!dbName) throw new Error('No se encontró la base de datos dentro de la copia.');
   dbBytes = files[dbName];
@@ -1234,14 +1399,22 @@ async function parseMMBackup(buf) {
   // Relaciones (movimiento → cuenta / categoría / etiqueta)
   const links = {};
   for (const l of rows("SELECT entityUid, otherType, otherUid, modified FROM sync_link WHERE COALESCE(isRemoved, 0) = 0 ORDER BY modified")) {
-    const e = (links[l.entityUid] ||= { Tag: [] });
-    if (l.otherType === 'Tag') e.Tag.push(l.otherUid); else e[l.otherType] = l.otherUid;
+    const e = (links[l.entityUid] ||= { Tag: [], Photo: [] });
+    if (l.otherType === 'Tag') e.Tag.push(l.otherUid);
+    else if (l.otherType === 'Photo') e.Photo.push(l.otherUid);
+    else e[l.otherType] = l.otherUid;
   }
   const tagNames = Object.fromEntries(rows('SELECT uid, name FROM tag').map((t) => [t.uid, t.name]));
+  // Fotos: sync_link (Photo) → sync_file.uid → localPath → photos/<localPath> dentro del ZIP
+  const photoFile = {};
+  try {
+    for (const f of rows("SELECT uid, localPath FROM sync_file WHERE fileType = 'photo' AND COALESCE(isRemoved, 0) = 0 AND localPath IS NOT NULL"))
+      photoFile[f.uid] = f.localPath;
+  } catch { /* copia sin tabla de archivos */ }
 
   const firstAcc = accounts[0]?.id || 'main';
   const transactions = rows('SELECT * FROM "transaction" WHERE COALESCE(isRemoved, 0) = 0').map((t) => {
-    const l = links[t.uid] || { Tag: [] };
+    const l = links[t.uid] || { Tag: [], Photo: [] };
     return {
       id: t.uid, type: String(t.type).toLowerCase() === 'income' ? 'income' : 'expense',
       amount: Math.abs(t.amountInAccountCurrency ?? t.amountInDefaultCurrency ?? 0),
@@ -1250,7 +1423,8 @@ async function parseMMBackup(buf) {
       categoryId: l.Category || (String(t.type).toLowerCase() === 'income' ? 'other_income' : 'other_expense'),
       note: (t.comment || '').trim(),
       tags: l.Tag.map((id) => tagNames[id]).filter(Boolean),
-      hasPhoto: !!l.Photo,
+      photos: l.Photo.filter((id) => photoFile[id]),
+      hasPhoto: l.Photo.length > 0,
       created: t.created, modified: t.modified
     };
   });
@@ -1272,8 +1446,24 @@ async function parseMMBackup(buf) {
   }
   db.close();
 
+  // Extraer del ZIP solo las fotos que usan los movimientos
+  const photoBlobs = new Map();
+  if (zipBytes) {
+    const wanted = new Map();
+    for (const t of transactions) for (const id of t.photos) wanted.set('photos/' + photoFile[id], id);
+    if (wanted.size) {
+      const pf = fflate.unzipSync(zipBytes, { filter: (f) => wanted.has(f.name) });
+      for (const [name, bytes] of Object.entries(pf)) {
+        const type = typeFromName(name);
+        photoBlobs.set(wanted.get(name), { blob: new Blob([bytes], { type }), type });
+      }
+    }
+  }
+  for (const t of transactions) t.photos = t.photos.filter((id) => photoBlobs.has(id));
+
   const data = { version: 1, currency: settings.defaultCurrencyCode || 'CLP', accounts, categories, transactions, transfers };
   emojiNamesToIcons(data);
+  Object.defineProperty(data, 'photoBlobs', { value: photoBlobs, enumerable: false });
   return data;
 }
 

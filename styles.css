@@ -275,3 +275,17 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .cat-grid.big .icon { width: 60px; height: 60px; font-size: 30px; }
 .see-all { display: block; width: 100%; padding: 10px 0 14px; color: var(--accent); font-size: 14px; font-weight: 600; }
 .save-btn { margin-top: 16px; padding: 16px; font-size: 17px; box-shadow: 0 0 20px rgba(31,255,122,.35); }
+
+/* ---------- Fotos ---------- */
+.photo-strip { display: flex; gap: 10px; padding: 12px; overflow-x: auto; }
+.thumb { flex: none; width: 76px; height: 76px; border-radius: 12px; overflow: hidden; background: var(--card-2); padding: 0; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb.add { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 24px; cursor: pointer;
+  border: 1.5px dashed rgba(31,255,122,.45); color: var(--accent); }
+.thumb.add span { font-size: 11px; font-weight: 600; }
+.photo-viewer { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.94); display: flex; align-items: center; justify-content: center;
+  padding: calc(env(safe-area-inset-top) + 10px) 10px calc(env(safe-area-inset-bottom) + 70px); }
+.photo-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; }
+.pv-bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; padding: 14px 20px calc(env(safe-area-inset-bottom) + 14px); }
+.pv-bar button { color: var(--accent); font-weight: 600; font-size: 16px; padding: 10px 14px; }
+.pv-bar button[data-a="del"] { color: var(--expense); }
