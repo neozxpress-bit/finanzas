@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '12';
+const APP_VERSION = '13';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
