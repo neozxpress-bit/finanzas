@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '14';
+const APP_VERSION = '15';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -740,6 +740,34 @@ function categoryUsage(type) {
   return recent.size ? recent : count(false);
 }
 
+// Todas las etiquetas, de la más usada a la menos usada
+function allTags() {
+  const count = new Map();
+  for (const t of S.transactions) for (const g of t.tags || []) count.set(g, (count.get(g) || 0) + 1);
+  return [...count.entries()].sort((a, b) => b[1] - a[1]).map(([g]) => g);
+}
+const fold = (x) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+// Etiquetas cuyo nombre (o alguna de sus palabras) empieza con lo escrito; sin distinguir mayúsculas ni tildes
+function filterTags(q, exclude = []) {
+  const f = fold(q.trim());
+  if (!f) return [];
+  const starts = [], words = [];
+  for (const g of allTags()) {
+    if (exclude.includes(g)) continue;
+    const n = fold(g);
+    if (n.startsWith(f)) starts.push(g);
+    else if (n.split(/[\s\-_./]+/).some((w) => w.startsWith(f))) words.push(g);
+  }
+  return [...starts, ...words].slice(0, 24);
+}
+function tagChips(selected, q) {
+  const chip = (g) => `<button data-tag="${esc(g)}" class="${selected.includes(g) ? 'on' : ''}">${esc(g)}</button>`;
+  if (!q.trim()) return [...new Set([...selected, ...topTags()])].map(chip).join('');
+  const found = filterTags(q, selected);
+  return selected.map(chip).join('') + (found.length ? found.map(chip).join('')
+    : `<span class="small muted" style="padding:5px 4px">Sin coincidencias · Enter para crear «${esc(q.trim())}»</span>`);
+}
+
 function topTags(n = 14) {
   const count = new Map();
   for (const t of S.transactions) for (const g of t.tags || []) count.set(g, (count.get(g) || 0) + 1);
@@ -763,7 +791,6 @@ function openTx(tx, type = 'expense') {
     let cats = d.showAll ? all : ranked.slice(0, TOP_CATS);
     if (!d.showAll && d.categoryId && !cats.some((c) => c.id === d.categoryId)) cats = [...cats.slice(0, TOP_CATS - 1), catById(d.categoryId)];
     const accs = S.accounts.filter((a) => !a.archived || a.id === d.accountId).sort((a, b) => a.position - b.position);
-    const tags = [...new Set([...d.tags, ...topTags()])];
     sh.innerHTML = `<div class="grip"></div>
       <div class="sheet-head">
         <button data-a="cancel">Cancelar</button>
@@ -780,7 +807,7 @@ function openTx(tx, type = 'expense') {
         <div class="field"><label>Fecha</label><input type="date" data-f="date" value="${d.date}"></div>
         <div class="field"><label>Nota</label><input type="text" data-f="note" placeholder="Opcional" value="${esc(d.note)}"></div>
         <div class="field"><label>Etiquetas</label><input type="text" data-f="newtag" placeholder="Escribe y presiona Enter"></div>
-        ${tags.length ? `<div class="chips">${tags.map((g) => `<button data-tag="${esc(g)}" class="${d.tags.includes(g) ? 'on' : ''}">${esc(g)}</button>`).join('')}</div>` : ''}
+        <div class="chips" data-role="tag-chips">${tagChips(d.tags, '')}</div>
       </div>
       <h2>Categoría</h2>
       <div class="card">
@@ -816,6 +843,7 @@ function openTx(tx, type = 'expense') {
       }
       if (b.dataset.cat) { collect(sh); d.categoryId = b.dataset.cat; const y = sh.scrollTop; draw(sh); sh.scrollTop = y; return; }
       if (b.dataset.tag !== undefined) {
+        $('[data-f="newtag"]', sh).value = '';
         collect(sh); const g = b.dataset.tag;
         d.tags = d.tags.includes(g) ? d.tags.filter((x) => x !== g) : [...d.tags, g];
         return draw(sh);
@@ -840,13 +868,20 @@ function openTx(tx, type = 'expense') {
       }
     };
     sh.onkeydown = (e) => {
-      if (e.key === 'Enter' && e.target.dataset.f === 'newtag') { e.preventDefault(); collect(sh); draw(sh); $('[data-f="newtag"]', sh).focus(); }
+      if (e.key === 'Enter' && e.target.dataset.f === 'newtag') {
+        e.preventDefault();
+        const q = e.target.value.trim();
+        const first = q && filterTags(q, d.tags)[0];
+        if (first && !d.tags.includes(first)) { d.tags.push(first); e.target.value = ''; }
+        collect(sh); const y = sh.scrollTop; draw(sh); sh.scrollTop = y; $('[data-f="newtag"]', sh).focus();
+      }
     };
     sh.oninput = (e) => {
       if (e.target.dataset.f === 'amount') {
         const el = e.target; const v = parseAmount(el.value);
         if (S.currency === 'CLP') el.value = v ? amountToInput(v) : '';
       }
+      if (e.target.dataset.f === 'newtag') $('[data-role="tag-chips"]', sh).innerHTML = tagChips(d.tags, e.target.value);
     };
   });
 }
