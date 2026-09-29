@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '16';
+const APP_VERSION = '17';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -105,7 +105,7 @@ const DB = {
   },
   getPhoto(id) { return this.photoTx('readonly', (st) => st.get(id)); },
   putPhotos(entries) { return this.photoTx('readwrite', (st) => { for (const [id, rec] of entries) st.put(rec, id); }); },
-  deletePhotos(ids) { return this.photoTx('readwrite', (st) => { for (const id of ids) st.delete(id); }); },
+  deletePhotos(ids) { window.onPhotosDeleted?.(ids); return this.photoTx('readwrite', (st) => { for (const id of ids) st.delete(id); }); },
   clearPhotos() { return this.photoTx('readwrite', (st) => { st.clear(); }); },
   photoKeys() { return this.photoTx('readonly', (st) => st.getAllKeys()); }
 };
@@ -114,7 +114,8 @@ const DB = {
 const photoURLs = new Map();
 async function photoURL(id) {
   if (photoURLs.has(id)) return photoURLs.get(id);
-  const rec = await DB.getPhoto(id).catch(() => null);
+  let rec = await DB.getPhoto(id).catch(() => null);
+  if (!rec) rec = await window.fetchRemotePhoto?.(id).catch(() => null); // bajar de la nube
   if (!rec) return null;
   const url = URL.createObjectURL(rec.blob);
   photoURLs.set(id, url);
@@ -143,6 +144,7 @@ const UI = { tab: 'home', type: 'expense', period: 'month', anchor: new Date(), 
 
 async function save() {
   await DB.set('state', S);
+  window.onStateSaved?.(); // sincronización (sync.js)
 }
 
 // ---------- Utilidades ----------
@@ -523,6 +525,7 @@ function viewMore() {
   return `
     ${pageHead('Ajustes y datos')}
     <div class="wrap">
+      ${window.syncSectionHtml?.() || ''}
       <h2>Organización</h2>
       <div class="card list">
         <button class="item" data-role="cats" data-v="expense"><span class="icon sm" style="background:#c0392b">▾</span><div class="grow">Categorías de gastos</div><span class="muted">›</span></button>
@@ -1288,7 +1291,9 @@ async function updateApp() {
 }
 
 async function wipe() {
-  if (!confirm('¿Borrar TODOS los datos de este dispositivo? Esta acción no se puede deshacer.')) return;
+  if (!confirm(window.syncSectionHtml && localStorage.getItem('finanzas-user')
+    ? '¿Borrar TODOS los datos? Como tienes la sincronización activa, se borrarán en TODOS tus dispositivos y en la nube. No se puede deshacer.'
+    : '¿Borrar TODOS los datos de este dispositivo? Esta acción no se puede deshacer.')) return;
   if (!confirm('¿Seguro? Te recomiendo exportar una copia antes.')) return;
   await DB.clearPhotos().catch(() => {}); photoURLs.clear();
   S = defaultState(); await save(); render(); toast('Datos borrados');
@@ -1480,10 +1485,12 @@ function emojiNamesToIcons(st) {
 }
 
 // ---------- Inicio ----------
+let appReadyResolve; window.appReady = new Promise((r) => (appReadyResolve = r));
 (async function init() {
   try { S = await DB.get('state'); } catch (e) { console.error(e); }
   if (!S) { S = defaultState(); await save(); }
   if (emojiNamesToIcons(S)) await save();
+  appReadyResolve();
   render();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     // Recargar una vez cuando se instala una versión nueva de la app
