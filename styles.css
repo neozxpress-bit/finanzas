@@ -344,3 +344,10 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .chips.outline { padding: 4px 0 4px; }
 .chips.outline button { background: transparent; border: 1.5px solid #5fbf8f; color: var(--text); font-size: 15px; padding: 6px 11px; border-radius: 9px; }
 .chips.outline button.on { background: #5fbf8f; color: #04140a; }
+
+/* Íconos de línea (calculadora, calendario, lupa) */
+.line-ico { width: 30px; height: 30px; fill: none; stroke: #7fd6a8; stroke-width: 1.6; stroke-linejoin: round; }
+.calc-btn, .cal-btn, .search-btn { display: grid; place-items: center; color: inherit; }
+.calc-btn { opacity: 1; }
+.calc-btn.on .line-ico, .search-btn.on .line-ico { stroke: var(--accent); }
+.search-btn .line-ico { width: 24px; height: 24px; }

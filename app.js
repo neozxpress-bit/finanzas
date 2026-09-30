@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '20';
+const APP_VERSION = '21';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -277,7 +277,10 @@ const SVG = {
   menu: '<svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round"/></svg>',
   receipt: '<svg viewBox="0 0 24 24"><path d="M6 2.5h12v19l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3-2 1.3z"/><path d="M9 7h6M9 10.5h6M9 14h6" stroke-linecap="round"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 4v16M4 12h16" stroke-linecap="round"/></svg>',
-  chev: '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  chev: '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  calc: '<svg viewBox="0 0 24 24" class="line-ico"><rect x="4.5" y="2.5" width="15" height="19" rx="2"/><rect x="7.5" y="5.5" width="9" height="4" rx=".6"/><path d="M8 13h.01M12 13h.01M16 13h.01M8 16.5h.01M12 16.5h.01M16 16.5h.01M8 20h.01M12 20h.01M16 20h.01" stroke-width="2.4" stroke-linecap="round"/></svg>',
+  calendar: '<svg viewBox="0 0 24 24" class="line-ico"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4" stroke-linecap="round"/><path d="M7.5 13h.01M12 13h.01M16.5 13h.01M7.5 16.5h.01M12 16.5h.01M16.5 16.5h.01" stroke-width="2.4" stroke-linecap="round"/></svg>',
+  search: '<svg viewBox="0 0 24 24" class="line-ico"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21" stroke-linecap="round"/></svg>'
 };
 const NO_TAG = '\u0000sin-etiqueta';
 
@@ -900,7 +903,7 @@ function openTx(tx, type = 'expense') {
       <div class="amt-row">
         <input class="amount-big num ${d.type}" type="text" inputmode="${d.calc ? 'none' : S.currency === 'CLP' ? 'numeric' : 'decimal'}" pattern="[0-9]*" enterkeyhint="done" placeholder="0" value="${amountToInput(d.amount)}" data-f="amount" autocomplete="off" ${d.calc ? 'readonly' : ''}>
         <span class="amt-cur">${esc(S.currency)}</span>
-        <button class="calc-btn ${d.calc ? 'on' : ''}" data-a="calc" aria-label="Calculadora">🧮</button>
+        <button class="calc-btn ${d.calc ? 'on' : ''}" data-a="calc" aria-label="Calculadora">${SVG.calc}</button>
       </div>
       ${d.calc ? calcPadHtml(d.expr) : ''}
 
@@ -912,10 +915,10 @@ function openTx(tx, type = 'expense') {
       <div class="date-chips">
         ${quickDates.map((q) => `<button class="dchip ${d.date === q.date ? 'sel' : ''}" data-date="${q.date}"><b>${q.short}</b><span>${q.label}</span></button>`).join('')}
         ${quickDates.some((q) => q.date === d.date) ? '' : `<button class="dchip sel" data-date="${d.date}"><b>${shortDM(d.date)}</b><span>${d.date.slice(0, 4)}</span></button>`}
-        <label class="cal-btn" aria-label="Elegir fecha">📅<input type="date" data-f="date" value="${d.date}"></label>
+        <label class="cal-btn" aria-label="Elegir fecha">${SVG.calendar}<input type="date" data-f="date" value="${d.date}"></label>
       </div>
 
-      <div class="mv-label row">Etiquetas <button class="search-btn ${d.tagSearch ? 'on' : ''}" data-a="tag-search" aria-label="Buscar etiqueta">🔍</button></div>
+      <div class="mv-label row">Etiquetas <button class="search-btn ${d.tagSearch ? 'on' : ''}" data-a="tag-search" aria-label="Buscar etiqueta">${SVG.search}</button></div>
       ${d.tagSearch ? '<input class="mv-input" data-f="newtag" placeholder="Buscar o crear etiqueta" autocomplete="off">' : '<input type="hidden" data-f="newtag" value="">'}
       <div class="chips outline" data-role="tag-chips">${tagChips(d.tags, '')}</div>
 
