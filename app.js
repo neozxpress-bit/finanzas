@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '23';
+const APP_VERSION = '24';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -532,8 +532,22 @@ function upcomingPaymentsHtml() {
     }).join('')}</div>`;
 }
 
+// Grupo desplegable de tarjetas (se recuerda abierto/cerrado en este dispositivo)
+function cardsGroupOpen() { try { return localStorage.getItem('finanzas-cards-open') === '1'; } catch { return false; } }
+function setCardsGroupOpen(v) { try { localStorage.setItem('finanzas-cards-open', v ? '1' : '0'); } catch {} }
+function accountRowHtml(a) {
+  const b = accountBalance(a.id);
+  return `<button class="item" data-edit-acc="${a.id}" style="${a.archived ? 'opacity:.5' : ''}">
+    ${iconBubble(a.icon, a.color)}
+    <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
+      <div class="small muted">${a.archived ? 'Archivada' : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div></div>
+    <div class="num ${b < 0 ? 'expense' : ''}">${money(b)}</div>
+  </button>`;
+}
+
 function viewAccounts() {
   const accs = [...S.accounts].sort((a, b) => a.archived - b.archived || a.position - b.position);
+  const cardAccs = accs.filter((a) => a.card && !a.archived);
   const total = S.accounts.filter((a) => !a.ignoreInBalance && !a.archived).reduce((s, a) => s + accountBalance(a.id), 0);
   return `
     ${pageHead('Cuentas')}
@@ -550,16 +564,18 @@ function viewAccounts() {
       ${upcomingPaymentsHtml()}
       <h2>Mis cuentas</h2>
       <div class="card list">
-        ${accs.map((a) => {
-          const b = accountBalance(a.id);
-          return `<button class="item" data-edit-acc="${a.id}" style="${a.archived ? 'opacity:.5' : ''}">
-            ${iconBubble(a.icon, a.color)}
-            <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
-              <div class="small muted">${a.archived ? 'Archivada' : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div></div>
-            <div class="num ${b < 0 ? 'expense' : ''}">${money(b)}</div>
-          </button>`;
-        }).join('')}
+        ${accs.filter((a) => !a.card || a.archived).map(accountRowHtml).join('')}
       </div>
+      ${cardAccs.length ? `<div class="card list" style="margin-top:12px">
+        <button class="item group" data-role="toggle-cards">
+          <span class="icon" style="background:#3b3f45">💳</span>
+          <div class="grow"><div class="ellipsis">Tarjetas de crédito (${cardAccs.length})</div>
+            <div class="small muted">${cardsGroupOpen() ? 'Ocultar' : 'Ver cada tarjeta'}</div></div>
+          <div class="num expense">${money(cardAccs.reduce((t, a) => t + accountBalance(a.id), 0))}</div>
+          <span class="chev ${cardsGroupOpen() ? 'up' : ''}">${SVG.chev}</span>
+        </button>
+        ${cardsGroupOpen() ? cardAccs.map(accountRowHtml).join('') : ''}
+      </div>` : ''}
     </div>`;
 }
 
@@ -612,17 +628,27 @@ function openAccountDialog() {
   let sel = UI.account;
   const accs = S.accounts.filter((a) => !a.archived).sort((a, b) => a.position - b.position);
   const total = S.accounts.filter((a) => !a.ignoreInBalance && !a.archived).reduce((s, a) => s + accountBalance(a.id), 0);
-  const opts = [{ id: 'all', name: 'Total', icon: '💰', color: '#0c3a22', bal: total }]
-    .concat(accs.map((a) => ({ id: a.id, name: a.name, icon: icon(a.icon), color: a.color, bal: accountBalance(a.id) })));
+  const toOpt = (a) => ({ id: a.id, name: a.name, icon: icon(a.icon), color: a.color, bal: accountBalance(a.id) });
+  const opts = [{ id: 'all', name: 'Total', icon: '💰', color: '#0c3a22', bal: total }].concat(accs.filter((a) => !a.card).map(toOpt));
+  const cards = accs.filter((a) => a.card).map(toOpt);
+  let open = cardsGroupOpen() || cards.some((o) => o.id === sel);
   const el = document.createElement('div');
   el.className = 'dialog-backdrop';
+  const optHtml = (o) => `<button class="opt ${o.id === sel ? 'sel' : ''}" data-id="${o.id}">
+        <span class="radio"></span><span class="icon" style="background:${o.color}">${o.icon}</span>
+        <span class="grow"><div class="name">${esc(o.name)}</div><div class="bal num ${o.bal < 0 ? 'neg' : ''}">${money(o.bal)}</div></span>
+      </button>`;
   const draw = () => {
     el.innerHTML = `<div class="dialog" role="dialog" aria-label="Seleccione una cuenta">
       <h3>Seleccione una cuenta</h3>
-      <div class="opts">${opts.map((o) => `<button class="opt ${o.id === sel ? 'sel' : ''}" data-id="${o.id}">
-        <span class="radio"></span><span class="icon" style="background:${o.color}">${o.icon}</span>
-        <span class="grow"><div class="name">${esc(o.name)}</div><div class="bal num ${o.bal < 0 ? 'neg' : ''}">${money(o.bal)}</div></span>
-      </button>`).join('')}</div>
+      <div class="opts">${opts.map(optHtml).join('')}
+        ${cards.length ? `<button class="opt group" data-a="toggle-cards">
+          <span class="radio" style="visibility:hidden"></span><span class="icon" style="background:#3b3f45">💳</span>
+          <span class="grow"><div class="name">Tarjetas (${cards.length})</div>
+            <div class="bal num neg">${money(cards.reduce((t, o) => t + o.bal, 0))}</div></span>
+          <span class="chev ${open ? 'up' : ''}">${SVG.chev}</span></button>
+          ${open ? `<div class="group-items">${cards.map(optHtml).join('')}</div>` : ''}` : ''}
+      </div>
       <div class="actions"><button data-a="cancel">CANCELAR</button><button data-a="ok">SELECCIONAR</button></div>
     </div>`;
   };
@@ -636,6 +662,11 @@ function openAccountDialog() {
     if (b.dataset.id) {
       const opts2 = el.querySelector('.opts'); const st = opts2.scrollTop;
       sel = b.dataset.id; draw(); el.querySelector('.opts').scrollTop = st;
+      return;
+    }
+    if (b.dataset.a === 'toggle-cards') {
+      const st = el.querySelector('.opts').scrollTop;
+      open = !open; setCardsGroupOpen(open); draw(); el.querySelector('.opts').scrollTop = st;
       return;
     }
     if (b.dataset.a === 'cancel') return el.remove();
@@ -768,6 +799,7 @@ document.addEventListener('click', (e) => {
   if (t.dataset.editTr) return openTransfer(S.transfers.find((x) => x.id === t.dataset.editTr));
   if (t.dataset.editAcc) return openAccount(accById(t.dataset.editAcc));
   if (t.dataset.role === 'new-account') return openAccount();
+  if (t.dataset.role === 'toggle-cards') { setCardsGroupOpen(!cardsGroupOpen()); return render(); }
   if (t.dataset.role === 'new-transfer') return openTransfer();
   if (t.dataset.role === 'cats') return openCategories(t.dataset.v);
   if (t.dataset.role === 'export-json') return exportJSON();

@@ -351,3 +351,10 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .calc-btn { opacity: 1; }
 .calc-btn.on .line-ico, .search-btn.on .line-ico { stroke: var(--accent); }
 .search-btn .line-ico { width: 24px; height: 24px; }
+
+/* Grupo desplegable de tarjetas */
+.chev.up svg { transform: rotate(180deg); }
+.item.group .chev, .opt.group .chev { margin-left: 4px; }
+.dialog .group-items { margin-left: 18px; border-left: 2px solid rgba(31,255,122,.25); padding-left: 4px; }
+.dialog .group-items .icon { width: 42px; height: 42px; font-size: 20px; }
+.dialog .group-items .name { font-size: 17px; }
