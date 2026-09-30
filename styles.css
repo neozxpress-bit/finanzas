@@ -307,3 +307,40 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .balance-edit .amount-input { width: auto; flex: 1; max-width: 260px; }
 .sign-btn { width: 44px; height: 44px; border-radius: 50%; background: var(--card); color: var(--income); font-size: 26px; font-weight: 700; flex: none; }
 .sign-btn.neg { color: var(--expense); }
+
+/* ---------- Nuevo movimiento (estilo app original) ---------- */
+.amt-row { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 14px 0 6px; }
+.amount-big { width: 190px; text-align: center; font-size: 44px; font-weight: 400; background: transparent; border: 0; outline: none; color: var(--text);
+  border-bottom: 2px solid var(--line); padding: 2px 0 6px; }
+.amount-big:focus { border-bottom-color: var(--accent); }
+.amount-big.income { color: var(--income); }
+.amt-cur { color: var(--accent); font-size: 26px; font-weight: 500; }
+.calc-btn { font-size: 26px; width: 44px; height: 44px; border-radius: 10px; opacity: .8; }
+.calc-btn.on { background: rgba(31,255,122,.15); opacity: 1; }
+.calc { background: var(--card); border-radius: 16px; padding: 10px; margin-bottom: 8px; }
+.calc-display { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 8px 10px; gap: 10px; }
+.calc-expr { font-size: 20px; word-break: break-all; }
+.calc-res { color: var(--accent); font-size: 15px; white-space: nowrap; }
+.calc-keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.calc-keys button { padding: 13px 0; border-radius: 12px; background: var(--card-2); font-size: 20px; }
+.calc-keys button.op { color: var(--accent); font-weight: 600; }
+.calc-keys button.fn { color: var(--muted); }
+.mv-label { color: var(--muted); font-size: 14px; margin: 16px 2px 4px; display: flex; align-items: center; justify-content: space-between; }
+.mv-value { position: relative; display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-size: 19px; padding: 2px; }
+.mv-value .caret { font-size: 12px; opacity: .8; }
+.overlay-select { position: absolute; inset: 0; opacity: 0; width: 100%; font-size: 16px; }
+.date-chips { display: flex; align-items: stretch; gap: 8px; margin-top: 18px; }
+.dchip { flex: 1; max-width: 96px; display: flex; flex-direction: column; align-items: center; padding: 8px 4px; border-radius: 10px; color: var(--text); line-height: 1.2; }
+.dchip b { font-size: 17px; font-weight: 500; }
+.dchip span { font-size: 15px; color: var(--muted); }
+.dchip.sel { background: #5fbf8f; color: #04140a; }
+.dchip.sel span { color: #04140a; }
+.cal-btn { position: relative; margin-left: auto; display: grid; place-items: center; width: 52px; font-size: 26px; cursor: pointer; }
+.cal-btn input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; }
+.search-btn { font-size: 20px; padding: 2px 6px; border-radius: 8px; }
+.search-btn.on { background: rgba(31,255,122,.15); }
+.mv-input { width: 100%; background: transparent; border: 0; border-bottom: 2px solid var(--line); color: var(--text); font-size: 17px; padding: 8px 2px; outline: none; margin-bottom: 8px; }
+.mv-input:focus { border-bottom-color: var(--accent); }
+.chips.outline { padding: 4px 0 4px; }
+.chips.outline button { background: transparent; border: 1.5px solid #5fbf8f; color: var(--text); font-size: 15px; padding: 6px 11px; border-radius: 9px; }
+.chips.outline button.on { background: #5fbf8f; color: #04140a; }

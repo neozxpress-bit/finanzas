@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '18';
+const APP_VERSION = '19';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -785,6 +785,40 @@ function amountToInput(n) {
   return new Intl.NumberFormat('es-CL', { maximumFractionDigits: 2 }).format(n);
 }
 
+// Fechas rápidas: hoy, ayer y el último día en que anotaste algo
+const shortDM = (iso) => `${Number(iso.slice(8))}/${Number(iso.slice(5, 7))}`;
+function quickDateOptions() {
+  const t = new Date(), y = new Date(); y.setDate(t.getDate() - 1);
+  const today = isoDate(t), yest = isoDate(y);
+  const opts = [{ date: today, short: shortDM(today), label: 'hoy' }, { date: yest, short: shortDM(yest), label: 'ayer' }];
+  let last = null;
+  for (const tx of S.transactions) if (tx.date < yest && (!last || (tx.created || '') > (last.created || ''))) last = tx;
+  if (last) opts.push({ date: last.date, short: shortDM(last.date), label: 'último' });
+  return opts;
+}
+
+// ----- Calculadora del monto -----
+function calcPadHtml(expr) {
+  const keys = ['7', '8', '9', '÷', '4', '5', '6', '×', '1', '2', '3', '−', 'C', '0', '⌫', '+'];
+  const v = calcEval(expr || '');
+  return `<div class="calc">
+    <div class="calc-display"><span class="calc-expr">${esc(expr || '0')}</span><span class="calc-res">${v === null ? '' : '= ' + money(v)}</span></div>
+    <div class="calc-keys">${keys.map((k) => `<button data-k="${k}" class="${'÷×−+'.includes(k) ? 'op' : k === 'C' || k === '⌫' ? 'fn' : ''}">${k}</button>`).join('')}</div>
+  </div>`;
+}
+function calcKey(expr, k) {
+  if (k === 'C') return '';
+  if (k === '⌫') return expr.slice(0, -1);
+  const ops = '÷×−+';
+  if (ops.includes(k)) return !expr ? '' : ops.includes(expr.slice(-1)) ? expr.slice(0, -1) + k : expr + k;
+  return expr + k;
+}
+function calcEval(expr) {
+  const e = String(expr).replace(/÷/g, '/').replace(/×/g, '*').replace(/−/g, '-').replace(/[+\-*/]+$/, '');
+  if (!e || !/^[0-9+\-*/.]+$/.test(e)) return null;
+  try { const v = Function(`"use strict";return (${e})`)(); return Number.isFinite(v) ? Math.round(v * 100) / 100 : null; } catch { return null; }
+}
+
 const TOP_CATS = 8;
 function categoryUsage(type) {
   const since = new Date(); since.setMonth(since.getMonth() - 6);
@@ -840,6 +874,7 @@ function openTx(tx, type = 'expense') {
     accountId: UI.account !== 'all' ? UI.account : (S.lastAccount && accById(S.lastAccount) ? S.lastAccount : S.accounts[0]?.id),
     categoryId: null, note: '', tags: [], photos: []
   };
+  const quickDates = quickDateOptions();
   const newPhotos = new Map(); // fotos nuevas, se guardan al tocar Guardar
   const removedPhotos = new Set();
 
@@ -851,6 +886,7 @@ function openTx(tx, type = 'expense') {
     let cats = d.showAll ? all : ranked.slice(0, TOP_CATS);
     if (!d.showAll && d.categoryId && !cats.some((c) => c.id === d.categoryId)) cats = [...cats.slice(0, TOP_CATS - 1), catById(d.categoryId)];
     const accs = S.accounts.filter((a) => !a.archived || a.id === d.accountId).sort((a, b) => a.position - b.position);
+    const acc = accById(d.accountId);
     sh.innerHTML = `<div class="grip"></div>
       <div class="sheet-head">
         <button data-a="cancel">Cancelar</button>
@@ -861,14 +897,31 @@ function openTx(tx, type = 'expense') {
         <button data-v="expense" class="${d.type === 'expense' ? 'active' : ''}">Gasto</button>
         <button data-v="income" class="${d.type === 'income' ? 'active' : ''}">Ingreso</button>
       </div>
-      <input class="amount-input num ${d.type}" type="text" inputmode="${S.currency === 'CLP' ? 'numeric' : 'decimal'}" pattern="[0-9]*" enterkeyhint="done" placeholder="$0" value="${amountToInput(d.amount)}" data-f="amount" autocomplete="off">
-      <div class="card list">
-        <div class="field"><label>Cuenta</label><select data-f="accountId">${accs.map((a) => `<option value="${a.id}" ${a.id === d.accountId ? 'selected' : ''}>${icon(a.icon)} ${esc(a.name)}</option>`).join('')}</select></div>
-        <div class="field"><label>Fecha</label><input type="date" data-f="date" value="${d.date}"></div>
-        <div class="field"><label>Nota</label><input type="text" data-f="note" placeholder="Opcional" value="${esc(d.note)}"></div>
-        <div class="field"><label>Etiquetas</label><input type="text" data-f="newtag" placeholder="Escribe y presiona Enter"></div>
-        <div class="chips" data-role="tag-chips">${tagChips(d.tags, '')}</div>
+      <div class="amt-row">
+        <input class="amount-big num ${d.type}" type="text" inputmode="${d.calc ? 'none' : S.currency === 'CLP' ? 'numeric' : 'decimal'}" pattern="[0-9]*" enterkeyhint="done" placeholder="0" value="${amountToInput(d.amount)}" data-f="amount" autocomplete="off" ${d.calc ? 'readonly' : ''}>
+        <span class="amt-cur">${esc(S.currency)}</span>
+        <button class="calc-btn ${d.calc ? 'on' : ''}" data-a="calc" aria-label="Calculadora">🧮</button>
       </div>
+      ${d.calc ? calcPadHtml(d.expr) : ''}
+
+      <div class="mv-label">Cuenta</div>
+      <label class="mv-value">${acc ? `${icon(acc.icon)} ${esc(acc.name)}` : 'Elegir cuenta'} <span class="caret">▾</span>
+        <select data-f="accountId" class="overlay-select">${accs.map((a) => `<option value="${a.id}" ${a.id === d.accountId ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>
+      </label>
+
+      <div class="date-chips">
+        ${quickDates.map((q) => `<button class="dchip ${d.date === q.date ? 'sel' : ''}" data-date="${q.date}"><b>${q.short}</b><span>${q.label}</span></button>`).join('')}
+        ${quickDates.some((q) => q.date === d.date) ? '' : `<button class="dchip sel" data-date="${d.date}"><b>${shortDM(d.date)}</b><span>${d.date.slice(0, 4)}</span></button>`}
+        <label class="cal-btn" aria-label="Elegir fecha">📅<input type="date" data-f="date" value="${d.date}"></label>
+      </div>
+
+      <div class="mv-label row">Etiquetas <button class="search-btn ${d.tagSearch ? 'on' : ''}" data-a="tag-search" aria-label="Buscar etiqueta">🔍</button></div>
+      ${d.tagSearch ? '<input class="mv-input" data-f="newtag" placeholder="Buscar o crear etiqueta" autocomplete="off">' : '<input type="hidden" data-f="newtag" value="">'}
+      <div class="chips outline" data-role="tag-chips">${tagChips(d.tags, '')}</div>
+
+      <div class="mv-label">Comentario</div>
+      <input class="mv-input" type="text" data-f="note" placeholder="Comentario" value="${esc(d.note)}">
+
       <h2>Fotos</h2>
       <div class="card photo-strip">
         ${d.photos.map((id) => `<button class="thumb" data-photo="${id}"><img alt="" data-src="${id}"></button>`).join('')}
@@ -909,6 +962,26 @@ function openTx(tx, type = 'expense') {
           const y = sh.scrollTop; draw(sh); sh.scrollTop = y;
         });
       }
+      if (b.dataset.date) { collect(sh); d.date = b.dataset.date; const y = sh.scrollTop; draw(sh); sh.scrollTop = y; return; }
+      if (b.dataset.a === 'tag-search') {
+        collect(sh); d.tagSearch = !d.tagSearch; const y = sh.scrollTop; draw(sh); sh.scrollTop = y;
+        if (d.tagSearch) $('[data-f="newtag"]', sh).focus();
+        return;
+      }
+      if (b.dataset.a === 'calc') {
+        collect(sh); d.calc = !d.calc; d.expr = d.calc && d.amount ? String(d.amount) : '';
+        const y = sh.scrollTop; draw(sh); sh.scrollTop = y;
+        if (!d.calc) $('[data-f="amount"]', sh).focus();
+        return;
+      }
+      if (b.dataset.k !== undefined) {
+        d.expr = calcKey(d.expr || '', b.dataset.k);
+        const v = calcEval(d.expr);
+        $('.calc-expr', sh).textContent = d.expr || '0';
+        $('.calc-res', sh).textContent = v === null ? '' : '= ' + money(v);
+        if (v !== null) $('[data-f="amount"]', sh).value = amountToInput(Math.max(0, v));
+        return;
+      }
       if (b.dataset.a === 'toggle-cats') { collect(sh); d.showAll = !d.showAll; const y = sh.scrollTop; draw(sh); sh.scrollTop = y; return; }
       if (b.closest('[data-a="type"]') && b.dataset.v) {
         collect(sh); d.type = b.dataset.v;
@@ -920,7 +993,7 @@ function openTx(tx, type = 'expense') {
         $('[data-f="newtag"]', sh).value = '';
         collect(sh); const g = b.dataset.tag;
         d.tags = d.tags.includes(g) ? d.tags.filter((x) => x !== g) : [...d.tags, g];
-        return draw(sh);
+        const y = sh.scrollTop; draw(sh); sh.scrollTop = y; return;
       }
       if (b.dataset.a === 'delete') {
         if (!confirm('¿Eliminar este movimiento?')) return;
@@ -949,6 +1022,7 @@ function openTx(tx, type = 'expense') {
       }
     };
     sh.onchange = async (e) => {
+      if (e.target.dataset.f === 'date' || e.target.dataset.f === 'accountId') { collect(sh); const y = sh.scrollTop; draw(sh); sh.scrollTop = y; return; }
       if (e.target.dataset.f !== 'photo-input' || !e.target.files.length) return;
       collect(sh);
       for (const f of e.target.files) {
