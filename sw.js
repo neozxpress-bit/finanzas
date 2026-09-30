@@ -1,5 +1,5 @@
 // Service worker: permite usar la app sin conexión.
-const CACHE = 'finanzas-v21';
+const CACHE = 'finanzas-v22';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'vendor/fflate.js', 'vendor/supabase.js', 'sync.js'];
 
 self.addEventListener('install', (e) => {
@@ -20,4 +20,23 @@ self.addEventListener('fetch', (e) => {
       return res;
     }).catch(() => caches.match(e.request, { ignoreSearch: true }))
   );
+});
+
+// Notificaciones push (recordatorios de pago)
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch { d = { title: 'Finanzas', body: e.data?.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Finanzas', {
+    body: d.body || '', icon: 'icon-192.png', badge: 'icon-192.png', tag: d.tag, data: { url: d.url || './' }
+  }));
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || './', self.registration.scope).href;
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const w of wins) { if ('focus' in w) { await w.focus(); w.navigate?.(url); return; } }
+    await self.clients.openWindow(url);
+  })());
 });

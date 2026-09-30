@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '21';
+const APP_VERSION = '22';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -140,7 +140,8 @@ const extFromType = (t) => ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/he
 const typeFromName = (n) => ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic', webp: 'image/webp' }[String(n).split('.').pop().toLowerCase()] || 'image/jpeg');
 
 let S = null; // estado persistente
-const UI = { tab: 'home', type: 'expense', period: 'month', anchor: new Date(), account: 'all', search: '', catFilter: null, tagFilter: null, open: new Set(), from: null, to: null };
+const START_TAB = new URLSearchParams(location.search).get('tab');
+const UI = { tab: ['home', 'list', 'accounts', 'more'].includes(START_TAB) ? START_TAB : 'home', type: 'expense', period: 'month', anchor: new Date(), account: 'all', search: '', catFilter: null, tagFilter: null, open: new Set(), from: null, to: null };
 
 async function save() {
   await DB.set('state', S);
@@ -493,6 +494,44 @@ function rowHtml(t) {
   </button>`;
 }
 
+// ---------- Tarjetas de crédito: próximo pago ----------
+const WEEKDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+// Próxima fecha de pago (si el mes no tiene ese día, el último día del mes)
+function nextDueDate(card, from = new Date()) {
+  if (!card?.dueDay) return null;
+  const today = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  for (let k = 0; k < 3; k++) {
+    const y = today.getFullYear(), m = today.getMonth() + k;
+    const last = new Date(y, m + 1, 0).getDate();
+    const d = new Date(y, m, Math.min(card.dueDay, last));
+    if (d >= today) return d;
+  }
+  return null;
+}
+function dueText(date) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Math.round((date - today) / 86400000);
+  const when = days === 0 ? 'hoy' : days === 1 ? 'mañana' : `en ${days} días`;
+  const wd = date.getDay();
+  const weekend = wd === 0 || wd === 6 ? ' · cae fin de semana' : '';
+  return { days, text: `${WEEKDAYS[wd]} ${date.getDate()} de ${MONTHS[date.getMonth()]} · ${when}${weekend}` };
+}
+function upcomingPaymentsHtml() {
+  const cards = S.accounts.filter((a) => !a.archived && a.card?.dueDay)
+    .map((a) => ({ a, date: nextDueDate(a.card) })).filter((x) => x.date).sort((x, y) => x.date - y.date);
+  if (!cards.length) return '';
+  return `<h2>Próximos pagos</h2>
+    <div class="card list">${cards.map(({ a, date }) => {
+      const b = accountBalance(a.id), t = dueText(date);
+      return `<button class="item" data-edit-acc="${a.id}">
+        ${iconBubble(a.icon, a.color)}
+        <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
+          <div class="small ${t.days <= (a.card.remindDays ?? 2) ? 'expense' : 'muted'}">Vence ${esc(t.text)}</div></div>
+        <div class="num ${b < 0 ? 'expense' : ''}">${money(b)}</div>
+      </button>`;
+    }).join('')}</div>`;
+}
+
 function viewAccounts() {
   const accs = [...S.accounts].sort((a, b) => a.archived - b.archived || a.position - b.position);
   const total = S.accounts.filter((a) => !a.ignoreInBalance && !a.archived).reduce((s, a) => s + accountBalance(a.id), 0);
@@ -508,6 +547,7 @@ function viewAccounts() {
         <button class="btn secondary" data-role="new-transfer">⇄ Transferir</button>
         <button class="btn secondary" data-role="new-account">＋ Nueva cuenta</button>
       </div>
+      ${upcomingPaymentsHtml()}
       <h2>Mis cuentas</h2>
       <div class="card list">
         ${accs.map((a) => {
@@ -515,7 +555,7 @@ function viewAccounts() {
           return `<button class="item" data-edit-acc="${a.id}" style="${a.archived ? 'opacity:.5' : ''}">
             ${iconBubble(a.icon, a.color)}
             <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
-              <div class="small muted">${a.archived ? 'Archivada' : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div></div>
+              <div class="small muted">${a.archived ? 'Archivada' : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div></div>
             <div class="num ${b < 0 ? 'expense' : ''}">${money(b)}</div>
           </button>`;
         }).join('')}
@@ -1259,9 +1299,17 @@ function openAccount(acc) {
       ${isNew ? `<div class="field"><label>Saldo inicial</label><input data-x="initial" data-num="1" inputmode="numeric" placeholder="$0"></div>`
         : `<button type="button" class="field" data-adjust="${d.id}" style="width:100%"><label>Saldo actual</label><span class="grow right num">${money(accountBalance(d.id))}</span><span style="color:var(--accent)">✏️ Ajustar</span></button>`}
       <div class="field"><label class="grow" style="width:auto">Excluir del saldo total</label><input type="checkbox" data-x="ignoreInBalance" ${d.ignoreInBalance ? 'checked' : ''}></div>
-      ${isNew ? '' : `<div class="field"><label class="grow" style="width:auto">Archivar cuenta</label><input type="checkbox" data-x="archived" ${d.archived ? 'checked' : ''}></div>`}`,
+      ${isNew ? '' : `<div class="field"><label class="grow" style="width:auto">Archivar cuenta</label><input type="checkbox" data-x="archived" ${d.archived ? 'checked' : ''}></div>`}
+      <div class="field"><label class="grow" style="width:auto">💳 Es tarjeta de crédito</label><input type="checkbox" data-x="cardOn" ${d.card ? 'checked' : ''}></div>
+      <div class="field"><label>Día de pago</label><input data-x="cardDue" inputmode="numeric" pattern="[0-9]*" placeholder="Ej: 5" value="${d.card?.dueDay || ''}"></div>
+      <div class="field"><label>Día de facturación</label><input data-x="cardClose" inputmode="numeric" pattern="[0-9]*" placeholder="Opcional" value="${d.card?.closingDay || ''}"></div>`,
     onSave: (d) => {
-      const { initial, ...rec } = d;
+      const { initial, cardOn, cardDue, cardClose, ...rec } = d;
+      const due = Math.min(31, Math.max(0, parseInt(cardDue, 10) || 0));
+      const close = Math.min(31, Math.max(0, parseInt(cardClose, 10) || 0));
+      if (cardOn && due) rec.card = { ...(d.card || {}), dueDay: due, closingDay: close || null, remindDays: d.card?.remindDays ?? 2 };
+      else if (cardOn && !due) { rec.card = d.card || null; toast('Falta el día de pago de la tarjeta'); }
+      else delete rec.card;
       const i = S.accounts.findIndex((a) => a.id === rec.id);
       if (i >= 0) S.accounts[i] = rec; else S.accounts.push(rec);
       if (isNew && initial > 0) {
@@ -1427,6 +1475,19 @@ async function importAddFile(file) {
     const data = JSON.parse(await file.text());
     if (data.kind !== 'finanzas-movimientos' || !Array.isArray(data.transactions)) throw new Error('No es un archivo de movimientos');
     const now = new Date().toISOString();
+    // Cuentas a crear o actualizar (ej: día de pago de una tarjeta, cuenta nueva Tenpo)
+    const acctChanges = [];
+    for (const spec of Array.isArray(data.accounts) ? data.accounts : []) {
+      const existing = (spec.id && accById(spec.id)) || S.accounts.find((a) => spec.name && a.name.toLowerCase() === String(spec.name).toLowerCase());
+      if (existing) {
+        const upd = { ...existing, ...spec, id: existing.id, card: spec.card === null ? undefined : spec.card ? { ...(existing.card || {}), ...spec.card } : existing.card };
+        if (JSON.stringify(upd) !== JSON.stringify(existing)) acctChanges.push({ type: 'update', before: existing, after: upd });
+      } else if (spec.name) {
+        acctChanges.push({ type: 'create', after: { id: spec.id || uid(), icon: 'credit_card', color: '#3b4de8', ignoreInBalance: false, archived: false, position: S.accounts.length + acctChanges.length, ...spec } });
+      }
+    }
+    const newIds = new Set(acctChanges.filter((c) => c.type === 'create').map((c) => c.after.id));
+    const accAfter = (id) => acctChanges.find((c) => c.after.id === id)?.after || accById(id);
     const incoming = data.transactions.map((t) => {
       const type = t.type === 'income' ? 'income' : 'expense';
       const cat = catById(t.categoryId);
@@ -1436,15 +1497,21 @@ async function importAddFile(file) {
         categoryId: cat && cat.type === type ? cat.id : (type === 'income' ? 'other_income' : 'other_expense'),
         note: t.note || '', tags: Array.isArray(t.tags) ? t.tags : [], created: t.created || now, modified: now
       };
-    }).filter((t) => t.amount > 0 && accById(t.accountId));
+    }).filter((t) => t.amount > 0 && accAfter(t.accountId));
     const { added, skipped } = mergeTransactions(S.transactions, incoming, data.match || {});
     const accId = data.accountId;
-    const acc = accById(accId);
-    const before = acc ? accountBalance(accId) : 0;
+    const acc = accAfter(accId);
+    const before = acc && !newIds.has(accId) ? accountBalance(accId) : 0;
     const net = added.filter((t) => t.accountId === accId).reduce((s, t) => s + (t.type === 'income' ? t.amount : -t.amount), 0);
     const after = before + net;
     const list = (arr) => arr.slice(0, 8).map((t) => `• ${t.date.slice(8)}/${t.date.slice(5, 7)} ${t.note || ''} ${money(t.amount)}`).join('\n') + (arr.length > 8 ? `\n… y ${arr.length - 8} más` : '');
-    let msg = `Se agregarán ${added.length} movimiento${added.length === 1 ? '' : 's'}.`;
+    let msg = '';
+    for (const c of acctChanges) {
+      const card = c.after.card?.dueDay ? ` · 💳 paga el día ${c.after.card.dueDay}${c.after.card.closingDay ? `, factura el ${c.after.card.closingDay}` : ''}` : '';
+      msg += c.type === 'create' ? `Se creará la cuenta «${c.after.name}»${card}\n` : `Se actualizará «${c.after.name}»${card}\n`;
+    }
+    if (msg) msg += '\n';
+    msg += `Se agregarán ${added.length} movimiento${added.length === 1 ? '' : 's'}.`;
     if (skipped.length) msg += `\nYa registrados (se omiten): ${skipped.length}\n${list(skipped)}`;
     if (acc) {
       msg += `\n\nSaldo ${acc.name}: ${money(before)} → ${money(after)}`;
@@ -1453,11 +1520,16 @@ async function importAddFile(file) {
         msg += `\nSaldo en el banco: ${money(data.bankBalance)}` + (diff ? `\nDiferencia: ${money(diff, { sign: true })}` : '\n✓ Cuadra con el banco');
       }
     }
-    if (!added.length) return alert(msg.replace('Se agregarán 0 movimientos.', 'No hay movimientos nuevos para agregar.'));
-    if (!confirm(msg + '\n\n¿Agregar?')) return;
+    if (!added.length && !acctChanges.length) return alert(msg.replace('Se agregarán 0 movimientos.', 'No hay movimientos nuevos para agregar.'));
+    if (!confirm(msg + '\n\n¿Aplicar?')) return;
+    for (const c of acctChanges) {
+      if (!c.after.card) delete c.after.card;
+      if (c.type === 'create') S.accounts.push(c.after);
+      else S.accounts[S.accounts.findIndex((a) => a.id === c.after.id)] = c.after;
+    }
     S.transactions.push(...added);
     await save(); render();
-    toast(`${added.length} movimiento${added.length === 1 ? '' : 's'} agregado${added.length === 1 ? '' : 's'}`);
+    toast(acctChanges.length && !added.length ? 'Cuentas actualizadas' : `${added.length} movimiento${added.length === 1 ? '' : 's'} agregado${added.length === 1 ? '' : 's'}`);
   } catch (err) { alert('No se pudo leer el archivo: ' + err.message); }
 }
 

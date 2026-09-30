@@ -318,7 +318,15 @@ window.syncSectionHtml = () => Sync.user ? `
       <div class="grow">Conectado como <b>${esc(Sync.user.username)}</b><div class="small muted" data-role="sync-status">${esc(Sync.status || syncSummary())}</div></div></div>
     <button class="item" data-role="sync-now"><span class="icon sm" style="background:#2e78cf">⟳</span><div class="grow">Sincronizar ahora</div></button>
     <button class="item" data-role="logout"><span class="icon sm" style="background:#555">⎋</span><div class="grow">Cerrar sesión</div></button>
-  </div>` : `
+  </div>
+  <h2>Recordatorios de pago</h2>
+  <div class="card list">
+    <div class="item"><span class="icon sm" style="background:#ec8207">🔔</span>
+      <div class="grow">Avisos de tarjetas<div class="small muted" data-role="push-status">${esc(pushStatusText())}</div></div></div>
+    <button class="item" data-role="push-enable"><span class="icon sm" style="background:#12b857">✓</span><div class="grow">Activar notificaciones en este dispositivo</div></button>
+    <button class="item" data-role="push-test"><span class="icon sm" style="background:#2e78cf">▶︎</span><div class="grow">Enviar notificación de prueba</div></button>
+  </div>
+  <p class="small muted" style="margin:6px 4px 0">Te aviso 2 días antes del día de pago de cada cuenta marcada como tarjeta de crédito (en Cuentas → tocar la cuenta → 💳).</p>` : `
   <h2>Sincronización</h2>
   <div class="card list">
     <button class="item" data-role="login"><span class="icon sm" style="background:#12b857">☁︎</span>
@@ -331,7 +339,57 @@ document.addEventListener('click', (e) => {
   if (t.dataset.role === 'login') openLogin();
   if (t.dataset.role === 'logout') logout();
   if (t.dataset.role === 'sync-now') syncNow({ quiet: false });
+  if (t.dataset.role === 'push-enable') enablePush();
+  if (t.dataset.role === 'push-test') testPush();
 });
+
+// ---------- Notificaciones push ----------
+const REMINDERS_URL = `${SB_URL}/functions/v1/send-reminders`;
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+
+function pushStatusText() {
+  if (!pushSupported()) return isStandalone() ? 'Este dispositivo no admite notificaciones (requiere iOS 16.4 o superior)' : 'Abre la app desde el ícono de tu pantalla de inicio para activarlas';
+  if (Notification.permission === 'denied') return 'Bloqueadas: actívalas en Ajustes del iPhone → Notificaciones → Finanzas';
+  if (Notification.permission === 'granted') return localStorage.getItem('finanzas-push') ? 'Activadas en este dispositivo ✓' : 'Permiso dado: toca "Activar" para terminar';
+  return 'Desactivadas';
+}
+function refreshPushStatus() { const el = document.querySelector('[data-role="push-status"]'); if (el) el.textContent = pushStatusText(); }
+const b64ToBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+
+async function enablePush() {
+  if (!Sync.user) return toast('Inicia sesión primero');
+  if (!pushSupported()) return alert(pushStatusText());
+  // El permiso se pide en el mismo toque (requisito de iPhone)
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') { refreshPushStatus(); return toast('No se dio permiso de notificaciones'); }
+  try {
+    const { publicKey } = await (await fetch(REMINDERS_URL)).json();
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+    const j = sub.toJSON();
+    const device = /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : /Mac/.test(navigator.userAgent) ? 'Mac' : 'Otro';
+    const { error } = await sb.from('push_subscriptions').upsert({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, device, user_id: Sync.user.id }, { onConflict: 'endpoint' });
+    if (error) throw error;
+    localStorage.setItem('finanzas-push', '1');
+    refreshPushStatus();
+    toast('Notificaciones activadas ✓');
+  } catch (err) {
+    console.error(err);
+    alert('No se pudieron activar: ' + (err.message || err));
+  }
+}
+
+async function testPush() {
+  if (!Sync.user) return toast('Inicia sesión primero');
+  const { data } = await sb.auth.getSession();
+  const res = await fetch(REMINDERS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB_KEY, Authorization: `Bearer ${data.session?.access_token}` }, body: '{"test":true}' });
+  const r = await res.json().catch(() => ({}));
+  if (!res.ok) return alert(r.error || 'No se pudo enviar');
+  if (!r.suscripciones) return alert('Este dispositivo aún no tiene las notificaciones activadas. Toca "Activar notificaciones" primero.');
+  toast(r.enviadas ? `Notificación enviada a ${r.enviadas} dispositivo(s)` : 'No se pudo entregar: ' + (r.errores?.[0] || 'revisa el permiso'));
+}
 
 // ---------- Arranque ----------
 (async function initSync() {
