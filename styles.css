@@ -55,7 +55,7 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .icon-btn svg { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-width: 1.8; }
 .acct-picker { position: relative; color: inherit; display: flex; justify-content: center; align-items: center; gap: 6px; font-size: 19px; font-weight: 600; min-width: 0; }
 .acct-picker .caret { font-size: 14px; color: var(--accent); }
-.hero-balance { text-align: center; font-size: 30px; font-weight: 700; letter-spacing: -.01em; line-height: 1.15; }
+.hero-balance { display: block; width: 100%; color: inherit; text-align: center; font-size: 30px; font-weight: 700; letter-spacing: -.01em; line-height: 1.15; }
 .type-tabs { display: flex; margin-top: 2px; }
 .type-tabs button { flex: 1; padding: 6px 0 7px; font-size: 17px; font-weight: 600; letter-spacing: .03em; color: #b9c2b8; position: relative; }
 .type-tabs button.active { color: #fff; }
@@ -300,3 +300,10 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .login-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(31,255,122,.15); }
 .login-msg { min-height: 20px; color: var(--expense); font-size: 14px; text-align: center; }
 .login-skip { color: var(--muted); font-size: 14px; padding: 10px; }
+
+/* ---------- Editar saldo ---------- */
+.hero-balance .pencil { font-size: 15px; vertical-align: middle; opacity: .75; }
+.balance-edit { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.balance-edit .amount-input { width: auto; flex: 1; max-width: 260px; }
+.sign-btn { width: 44px; height: 44px; border-radius: 50%; background: var(--card); color: var(--income); font-size: 26px; font-weight: 700; flex: none; }
+.sign-btn.neg { color: var(--expense); }

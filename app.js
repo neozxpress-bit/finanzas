@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '17';
+const APP_VERSION = '18';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -264,7 +264,7 @@ function filteredTx({ type = null, cat = null, tag = null, search = '' } = {}) {
   return S.transactions.filter((t) =>
     inPeriod(t.date) &&
     (UI.account === 'all' || t.accountId === UI.account) &&
-    (!type || t.type === type) &&
+    (!type || (t.type === type && !t.adjust)) &&
     (!cat || t.categoryId === cat) &&
     (!tag || (tag === NO_TAG ? !(t.tags || []).length : (t.tags || []).includes(tag))) &&
     (!q || (t.note || '').toLowerCase().includes(q) || (t.tags || []).some((g) => g.toLowerCase().includes(q)) ||
@@ -376,7 +376,7 @@ function viewHome() {
         ${accountPicker()}
         <button class="icon-btn" data-go="list" aria-label="Movimientos">${SVG.receipt}</button>
       </div>
-      <div class="hero-balance num">${money(totalBalance())}</div>
+      <button class="hero-balance num" data-role="edit-balance" aria-label="Editar saldo">${money(totalBalance())} <span class="pencil">✏️</span></button>
       <div class="type-tabs" data-role="type">
         <button data-v="expense" class="${UI.type === 'expense' ? 'active' : ''}">GASTOS</button>
         <button data-v="income" class="${UI.type === 'income' ? 'active' : ''}">INGRESOS</button>
@@ -434,8 +434,8 @@ function viewList() {
   const limited = [...groups.entries()].slice(0, 120);
 
   const fc = UI.catFilter && catById(UI.catFilter);
-  const inc = tx.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-  const exp = tx.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  const inc = tx.filter((t) => t.type === 'income' && !t.adjust).reduce((s, t) => s + t.amount, 0);
+  const exp = tx.filter((t) => t.type === 'expense' && !t.adjust).reduce((s, t) => s + t.amount, 0);
 
   return `
     ${pageHead('Movimientos')}
@@ -475,7 +475,7 @@ function rowHtml(t) {
       <div class="num">${money(t.amount)}</div>
     </button>`;
   }
-  const c = catById(t.categoryId) || { name: 'Sin categoría', icon: 'other', color: '#888' };
+  const c = t.adjust ? ADJUST_CAT : catById(t.categoryId) || { name: 'Sin categoría', icon: 'other', color: '#888' };
   const a = accById(t.accountId);
   const tags = t.tags || [];
   return `<button class="tx" data-edit-tx="${t.id}">
@@ -717,7 +717,11 @@ document.addEventListener('click', (e) => {
   }
   if (t.dataset.role === 'clear-cat') { UI.catFilter = null; return render(); }
   if (t.dataset.role === 'clear-tag') { UI.tagFilter = null; return render(); }
-  if (t.dataset.editTx) return openTx(S.transactions.find((x) => x.id === t.dataset.editTx));
+  if (t.dataset.editTx) {
+    const tx = S.transactions.find((x) => x.id === t.dataset.editTx);
+    return tx?.adjust ? openBalanceEditor(tx.accountId, tx) : openTx(tx);
+  }
+  if (t.dataset.role === 'edit-balance') return UI.account === 'all' ? pickAccountToAdjust() : openBalanceEditor(UI.account);
   if (t.dataset.editTr) return openTransfer(S.transfers.find((x) => x.id === t.dataset.editTr));
   if (t.dataset.editAcc) return openAccount(accById(t.dataset.editAcc));
   if (t.dataset.role === 'new-account') return openAccount();
@@ -975,6 +979,103 @@ function openTx(tx, type = 'expense') {
   });
 }
 
+// ----- Ajuste de saldo -----
+const ADJUST_CAT = { id: 'ajuste_saldo', name: 'Ajuste de saldo', icon: '⚖️', color: '#5b6b62' };
+
+// Con "Total" seleccionado: elegir la cuenta a ajustar
+function pickAccountToAdjust() {
+  const accs = S.accounts.filter((a) => !a.archived).sort((a, b) => a.position - b.position);
+  openSheet(`
+    <div class="sheet-head"><button data-a="cancel">Cancelar</button><h3>¿Qué saldo quieres editar?</h3><span style="width:70px"></span></div>
+    <div class="card list">${accs.map((a) => {
+      const b = accountBalance(a.id);
+      return `<button class="item" data-acc="${a.id}">${iconBubble(a.icon, a.color)}
+        <div class="grow ellipsis">${esc(a.name)}</div><span class="num ${b < 0 ? 'expense' : ''}">${money(b)}</span><span style="color:var(--accent)">✏️</span></button>`;
+    }).join('')}</div>`,
+  (sh) => {
+    sh.onclick = (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.a === 'cancel') return closeSheet();
+      if (b.dataset.acc) { closeSheet(); openBalanceEditor(b.dataset.acc); }
+    };
+  });
+}
+
+// Escribes el saldo real de la cuenta y se crea (o edita) un movimiento de ajuste por la diferencia
+function openBalanceEditor(accountId, existing = null) {
+  const acc = accById(accountId);
+  if (!acc) return toast('Cuenta no encontrada');
+  const prev = existing ? (existing.type === 'income' ? existing.amount : -existing.amount) : 0;
+  const base = accountBalance(accountId) - prev; // saldo sin este ajuste
+  let target = base + prev;
+  let negative = target < 0;
+  const date0 = existing?.date || isoDate(new Date());
+  const note0 = existing?.note || '';
+  const draw = (sh) => {
+    const diff = target - base;
+    sh.innerHTML = `<div class="grip"></div>
+      <div class="sheet-head"><button data-a="cancel">Cancelar</button><h3>Saldo de ${esc(acc.name)}</h3><span style="width:70px"></span></div>
+      <p class="small muted" style="text-align:center;margin:0">Saldo según la app: <b class="num">${money(base + prev)}</b></p>
+      <div class="balance-edit">
+        <button class="sign-btn ${negative ? 'neg' : ''}" data-a="sign" aria-label="Cambiar signo">${negative ? '−' : '+'}</button>
+        <input class="amount-input num" data-f="bal" inputmode="numeric" pattern="[0-9]*" value="${amountToInput(Math.abs(target))}" placeholder="0" autocomplete="off">
+      </div>
+      <p class="small" style="text-align:center;margin:0 0 12px" data-role="diff">${diffText(diff)}</p>
+      <div class="card list">
+        <div class="field"><label>Fecha</label><input type="date" data-f="date" value="${date0}"></div>
+        <div class="field"><label>Nota</label><input type="text" data-f="note" placeholder="Opcional" value="${esc(note0)}"></div>
+      </div>
+      <button class="btn save-btn" data-a="save">Guardar saldo</button>
+      ${existing ? '<button class="btn danger" data-a="delete" style="margin-top:4px">Eliminar ajuste</button>' : ''}
+      <p class="small muted" style="text-align:center">Se registra como un movimiento "Ajuste de saldo" por la diferencia. No aparece en tus gráficos de gastos ni ingresos.</p>`;
+  };
+  const diffText = (diff) => diff === 0 ? '<span class="muted">Sin cambios</span>'
+    : `Se registrará un ajuste de <b class="num ${diff > 0 ? 'income' : 'expense'}">${money(diff, { sign: true })}</b>`;
+  const readTarget = (sh) => { const v = Math.abs(parseAmount($('[data-f="bal"]', sh).value)); target = negative ? -v : v; };
+
+  openSheet('', (sh) => {
+    draw(sh);
+    const inp = $('[data-f="bal"]', sh); inp.focus({ preventScroll: true }); inp.select();
+    sh.oninput = (e) => {
+      if (e.target.dataset.f !== 'bal') return;
+      const v = Math.abs(parseAmount(e.target.value));
+      if (S.currency === 'CLP') e.target.value = v ? amountToInput(v) : '';
+      readTarget(sh);
+      $('[data-role="diff"]', sh).innerHTML = diffText(target - base);
+    };
+    sh.onclick = async (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.a === 'cancel') return closeSheet();
+      if (b.dataset.a === 'sign') {
+        readTarget(sh); negative = !negative; target = -target;
+        const date = $('[data-f="date"]', sh).value, note = $('[data-f="note"]', sh).value;
+        draw(sh); $('[data-f="date"]', sh).value = date; $('[data-f="note"]', sh).value = note;
+        return;
+      }
+      if (b.dataset.a === 'delete') {
+        if (!confirm('¿Eliminar este ajuste de saldo?')) return;
+        S.transactions = S.transactions.filter((x) => x.id !== existing.id);
+        await save(); closeSheet(); render(); return toast('Ajuste eliminado');
+      }
+      if (b.dataset.a !== 'save') return;
+      readTarget(sh);
+      const diff = target - base;
+      const date = $('[data-f="date"]', sh).value || isoDate(new Date());
+      const note = $('[data-f="note"]', sh).value.trim();
+      const now = new Date().toISOString();
+      if (existing) S.transactions = S.transactions.filter((x) => x.id !== existing.id);
+      if (diff !== 0) {
+        S.transactions.push({
+          id: existing?.id || uid(), type: diff > 0 ? 'income' : 'expense', amount: Math.abs(diff), date, accountId,
+          categoryId: ADJUST_CAT.id, note, tags: [], photos: [], adjust: true, created: existing?.created || now, modified: now
+        });
+      }
+      await save(); closeSheet(); render();
+      toast(`Saldo de ${acc.name}: ${money(target)}`);
+    };
+  });
+}
+
 // ----- Visor de fotos -----
 async function openPhotoViewer(id, onDelete) {
   const el = document.createElement('div');
@@ -1059,6 +1160,7 @@ function openEntityEditor({ title, entity, isNew, extraFields, onSave, onDelete,
     sh.onclick = async (e) => {
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.a === 'cancel') return closeSheet();
+      if (b.dataset.adjust) { closeSheet(); return openBalanceEditor(b.dataset.adjust); }
       if (b.dataset.color) { collect(sh); d.color = b.dataset.color; const y = sh.scrollTop; draw(sh); sh.scrollTop = y; return; }
       if (b.dataset.icon) { collect(sh); d.icon = b.dataset.icon; const y = sh.scrollTop; draw(sh); sh.scrollTop = y; return; }
       if (b.dataset.a === 'delete') { if (await onDelete(d)) { await save(); closeSheet(); render(); } return; }
@@ -1077,7 +1179,8 @@ function openAccount(acc) {
   openEntityEditor({
     title: isNew ? 'Nueva cuenta' : 'Editar cuenta', entity, isNew,
     extraFields: (d) => `
-      ${isNew ? `<div class="field"><label>Saldo inicial</label><input data-x="initial" data-num="1" inputmode="numeric" placeholder="$0"></div>` : ''}
+      ${isNew ? `<div class="field"><label>Saldo inicial</label><input data-x="initial" data-num="1" inputmode="numeric" placeholder="$0"></div>`
+        : `<button type="button" class="field" data-adjust="${d.id}" style="width:100%"><label>Saldo actual</label><span class="grow right num">${money(accountBalance(d.id))}</span><span style="color:var(--accent)">✏️ Ajustar</span></button>`}
       <div class="field"><label class="grow" style="width:auto">Excluir del saldo total</label><input type="checkbox" data-x="ignoreInBalance" ${d.ignoreInBalance ? 'checked' : ''}></div>
       ${isNew ? '' : `<div class="field"><label class="grow" style="width:auto">Archivar cuenta</label><input type="checkbox" data-x="archived" ${d.archived ? 'checked' : ''}></div>`}`,
     onSave: (d) => {
@@ -1184,7 +1287,7 @@ function exportCSV() {
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [['Fecha', 'Tipo', 'Monto', 'Categoría', 'Cuenta', 'Nota', 'Etiquetas'].join(';')];
   for (const t of [...S.transactions].sort((a, b) => a.date.localeCompare(b.date))) {
-    lines.push([t.date, t.type === 'income' ? 'Ingreso' : 'Gasto', t.type === 'income' ? t.amount : -t.amount,
+    lines.push([t.date, t.adjust ? 'Ajuste de saldo' : t.type === 'income' ? 'Ingreso' : 'Gasto', t.type === 'income' ? t.amount : -t.amount,
       q(catById(t.categoryId)?.name), q(accById(t.accountId)?.name), q(t.note), q((t.tags || []).join(', '))].join(';'));
   }
   for (const t of S.transfers) {
