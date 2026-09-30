@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '22';
+const APP_VERSION = '23';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -1494,8 +1494,9 @@ async function importAddFile(file) {
       return {
         id: String(t.id), type, amount: Math.abs(Number(t.amount) || 0), date: String(t.date).slice(0, 10),
         accountId: t.accountId || data.accountId,
-        categoryId: cat && cat.type === type ? cat.id : (type === 'income' ? 'other_income' : 'other_expense'),
-        note: t.note || '', tags: Array.isArray(t.tags) ? t.tags : [], created: t.created || now, modified: now
+        categoryId: t.adjust ? ADJUST_CAT.id : cat && cat.type === type ? cat.id : (type === 'income' ? 'other_income' : 'other_expense'),
+        note: t.note || '', tags: Array.isArray(t.tags) ? t.tags : [], created: t.created || now, modified: now,
+        ...(t.adjust ? { adjust: true } : {})
       };
     }).filter((t) => t.amount > 0 && accAfter(t.accountId));
     const { added, skipped } = mergeTransactions(S.transactions, incoming, data.match || {});
