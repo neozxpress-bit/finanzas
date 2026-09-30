@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '19';
+const APP_VERSION = '20';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -1389,6 +1389,7 @@ async function importJSONFile(file) {
     if (!confirm(`Esto reemplazará tus datos actuales con ${data.transactions.length} movimientos${photos.length ? ` y ${photos.length} fotos` : ''}. ¿Continuar?`)) return;
     await DB.clearPhotos(); photoURLs.forEach((u) => URL.revokeObjectURL(u)); photoURLs.clear();
     if (photos.length) await DB.putPhotos(photos);
+    allowCloudReplace();
     S = { ...defaultState(), ...data };
     await save(); render(); toast('Copia restaurada');
   } catch (err) { alert('No se pudo leer el archivo: ' + err.message); }
@@ -1467,12 +1468,16 @@ async function updateApp() {
   location.replace(location.pathname + '?v=' + Date.now());
 }
 
+// Reemplazar todo a propósito (importar, restaurar, borrar): permite que la nube también se reemplace
+function allowCloudReplace() { if (typeof Sync !== 'undefined') Sync.allowMassDelete = true; }
+
 async function wipe() {
   if (!confirm(window.syncSectionHtml && localStorage.getItem('finanzas-user')
     ? '¿Borrar TODOS los datos? Como tienes la sincronización activa, se borrarán en TODOS tus dispositivos y en la nube. No se puede deshacer.'
     : '¿Borrar TODOS los datos de este dispositivo? Esta acción no se puede deshacer.')) return;
   if (!confirm('¿Seguro? Te recomiendo exportar una copia antes.')) return;
   await DB.clearPhotos().catch(() => {}); photoURLs.clear();
+  allowCloudReplace();
   S = defaultState(); await save(); render(); toast('Datos borrados');
 }
 
@@ -1499,6 +1504,7 @@ async function importMMBackupFile(file) {
     if (!confirm(msg)) return;
     await DB.clearPhotos(); photoURLs.forEach((u) => URL.revokeObjectURL(u)); photoURLs.clear();
     if (data.photoBlobs.size) await DB.putPhotos([...data.photoBlobs]);
+    allowCloudReplace();
     S = { ...defaultState(), ...data };
     UI.account = 'all'; UI.anchor = new Date();
     await save(); render(); toast('¡Importación completa!');

@@ -63,10 +63,17 @@ async function pushChanges() {
   const local = localRecords();
   const rows = [];
   for (const [key, r] of local) if (Sync.shadow.get(key) !== r.json) rows.push({ user_id: Sync.user.id, kind: r.kind, id: r.id, data: r.data, deleted: false });
+  const deletes = [];
   for (const key of Sync.shadow.keys()) if (!local.has(key)) {
     const [kind, ...rest] = key.split(':');
-    rows.push({ user_id: Sync.user.id, kind, id: rest.join(':'), data: null, deleted: true });
+    deletes.push({ user_id: Sync.user.id, kind, id: rest.join(':'), data: null, deleted: true });
   }
+  // Protección: si este dispositivo "perdió" muchos registros, no se borran en la nube
+  if (deletes.length > 20 && deletes.length > Sync.shadow.size * 0.03 && !Sync.allowMassDelete) {
+    const err = new Error(`MASS_DELETE:${deletes.length}`); err.massDelete = deletes.length; throw err;
+  }
+  Sync.allowMassDelete = false;
+  rows.push(...deletes);
   for (let i = 0; i < rows.length; i += 500) {
     const chunk = rows.slice(i, i + 500);
     if (rows.length > 500) setSyncStatus(`Subiendo ${Math.min(i + 500, rows.length)} de ${rows.length}…`);
@@ -163,6 +170,15 @@ async function syncNow({ quiet = true } = {}) {
     pushPhotos().then((n) => { if (n) setSyncStatus(syncSummary()); }).catch((e) => console.warn('fotos', e));
   } catch (err) {
     console.error(err);
+    if (err.massDelete) {
+      setSyncStatus('Sincronización detenida por seguridad');
+      Sync.running = false;
+      if (confirm(`Por seguridad detuve la sincronización: este dispositivo iba a borrar ${err.massDelete} registros de la nube.\n\n` +
+        `Aceptar: reemplazar los datos de este dispositivo con los de la nube (recomendado).\nCancelar: no hacer nada por ahora.`)) {
+        await replaceLocalWithCloud();
+      }
+      return;
+    }
     setSyncStatus('Error al sincronizar: ' + (err.message || err));
     if (!quiet) toast('No se pudo sincronizar');
   } finally {
@@ -195,32 +211,31 @@ async function firstSync() {
     toast('Subiendo tus datos a la nube…');
     return syncNow({ quiet: false });
   }
-  const replace = localTx === 0 || confirm(
+  if (localTx && !confirm(
     `Tu cuenta en la nube ya tiene datos.\n\n` +
-    `Este dispositivo tiene ${localTx} movimientos.\n\n` +
-    `Aceptar: usar los datos de la nube en este dispositivo (recomendado).\n` +
-    `Cancelar: combinar los de este dispositivo con los de la nube.`);
-  Sync.cursor = null;
-  if (replace) {
-    // Empezar vacío y bajar todo
-    const keepCurrency = S.currency;
-    S = { ...defaultState(), accounts: [], categories: [], transactions: [], transfers: [], currency: keepCurrency };
-    Sync.shadow = new Map();
-    await DB.clearPhotos().catch(() => {}); photoURLs.clear();
-    setSyncStatus('Descargando tus datos…');
-    await pullChanges();
-    await DB.set('state', S);
-    Sync.lastOk = new Date().toISOString();
-    await saveSyncMeta();
-    UI.account = 'all'; render();
-    toast(`Listo: ${S.transactions.length} movimientos descargados`);
-    setSyncStatus(syncSummary());
-  } else {
-    // Combinar: lo que exista en ambos se toma de la nube; lo nuevo de aquí se sube
-    Sync.shadow = new Map();
-    await pullChanges();
-    await syncNow({ quiet: false });
+    `Los ${localTx} movimientos de este dispositivo se reemplazarán por los de la nube.\n` +
+    `(Si quieres, cancela y exporta antes una copia desde Más → Exportar copia de seguridad.)\n\n¿Continuar?`)) {
+    Sync.user = null; localStorage.removeItem('finanzas-user'); await sb.auth.signOut().catch(() => {});
+    toast('No se inició sesión. Tus datos siguen igual.');
+    return;
   }
+  await replaceLocalWithCloud();
+}
+
+// Bajar todo desde la nube y reemplazar lo de este dispositivo (se guarda de inmediato)
+async function replaceLocalWithCloud() {
+  const keepCurrency = S.currency;
+  S = { ...defaultState(), accounts: [], categories: [], transactions: [], transfers: [], currency: keepCurrency };
+  Sync.shadow = new Map(); Sync.cursor = null;
+  await DB.clearPhotos().catch(() => {}); photoURLs.clear();
+  setSyncStatus('Descargando tus datos…');
+  await pullChanges();
+  await DB.set('state', S);
+  Sync.lastOk = new Date().toISOString();
+  await saveSyncMeta();
+  UI.account = 'all'; render();
+  toast(`Listo: ${S.transactions.length} movimientos descargados`);
+  setSyncStatus(syncSummary());
 }
 
 // ---------- Inicio de sesión ----------
