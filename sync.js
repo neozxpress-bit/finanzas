@@ -233,7 +233,7 @@ async function replaceLocalWithCloud() {
   await DB.set('state', S);
   Sync.lastOk = new Date().toISOString();
   await saveSyncMeta();
-  UI.account = 'all'; render();
+  render();
   toast(`Listo: ${S.transactions.length} movimientos descargados`);
   setSyncStatus(syncSummary());
 }

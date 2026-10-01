@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '30';
+const APP_VERSION = '31';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -141,7 +141,7 @@ const typeFromName = (n) => ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'imag
 
 let S = null; // estado persistente
 const START_TAB = new URLSearchParams(location.search).get('tab');
-const UI = { tab: ['home', 'list', 'accounts', 'more'].includes(START_TAB) ? START_TAB : 'home', type: 'expense', period: 'month', anchor: new Date(), account: 'all', search: '', catFilter: null, tagFilter: null, open: new Set(), from: null, to: null };
+const UI = { tab: ['home', 'list', 'accounts', 'more'].includes(START_TAB) ? START_TAB : 'home', type: 'expense', period: 'month', anchor: new Date(), account: (() => { try { return localStorage.getItem('finanzas-account') || ''; } catch { return ''; } })(), search: '', catFilter: null, tagFilter: null, open: new Set(), from: null, to: null };
 
 async function save() {
   await DB.set('state', S);
@@ -781,7 +781,7 @@ function openAccountDialog() {
   const accs = S.accounts.filter((a) => !a.archived).sort((a, b) => a.position - b.position);
   const total = S.accounts.filter((a) => !a.ignoreInBalance && !a.archived).reduce((s, a) => s + accountBalance(a.id), 0);
   const toOpt = (a) => ({ id: a.id, name: a.name, icon: icon(a.icon), color: a.color, bal: accountBalance(a.id) });
-  const opts = [{ id: 'all', name: 'Total', icon: '💰', color: '#0c3a22', bal: total }].concat(accs.filter((a) => !isGrouped(a)).map(toOpt));
+  const opts = accs.filter((a) => !isGrouped(a)).map(toOpt);
   const groups = ACCOUNT_GROUPS.map((g) => {
     const items = accs.filter(g.test).map(toOpt);
     return { ...g, items, open: groupOpen(g.key) || items.some((o) => o.id === sel) };
@@ -826,7 +826,7 @@ function openAccountDialog() {
       return;
     }
     if (b.dataset.a === 'cancel') return el.remove();
-    if (b.dataset.a === 'ok') { UI.account = sel; el.remove(); render(); }
+    if (b.dataset.a === 'ok') { selectAccount(sel); el.remove(); render(); }
   });
 }
 
@@ -875,7 +875,20 @@ function openCustomPeriod() {
 }
 
 // ---------- Render ----------
+// Siempre hay una cuenta elegida (sin "Total"): la última usada, o Personal, o la primera
+function ensureAccount() {
+  const ok = (id) => { const a = accById(id); return a && !a.archived; };
+  if (ok(UI.account)) return;
+  const saved = (() => { try { return localStorage.getItem('finanzas-account'); } catch { return null; } })();
+  UI.account = ok(saved) ? saved : ok('main') ? 'main' : (S.accounts.find((a) => !a.archived)?.id || 'main');
+}
+function selectAccount(id) {
+  UI.account = id;
+  try { localStorage.setItem('finanzas-account', id); } catch {}
+}
+
 function render() {
+  ensureAccount();
   const v = $('#view');
   v.innerHTML = { home: viewHome, list: viewList, accounts: viewAccounts, more: viewMore }[UI.tab]();
   document.querySelectorAll('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.go === UI.tab));
@@ -1787,7 +1800,7 @@ async function importMMBackupFile(file) {
     if (data.photoBlobs.size) await DB.putPhotos([...data.photoBlobs]);
     allowCloudReplace();
     S = { ...defaultState(), ...data };
-    UI.account = 'all'; UI.anchor = new Date();
+    UI.anchor = new Date();
     await save(); render(); toast('¡Importación completa!');
   } catch (err) {
     console.error(err);
