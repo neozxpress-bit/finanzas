@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '27';
+const APP_VERSION = '28';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -668,8 +668,17 @@ function openBillsSheet(accId, due) {
 }
 
 // Grupo desplegable de tarjetas (se recuerda abierto/cerrado en este dispositivo)
-function cardsGroupOpen() { try { return localStorage.getItem('finanzas-cards-open') === '1'; } catch { return false; } }
-function setCardsGroupOpen(v) { try { localStorage.setItem('finanzas-cards-open', v ? '1' : '0'); } catch {} }
+function groupOpen(g) { try { return localStorage.getItem(`finanzas-${g}-open`) === '1'; } catch { return false; } }
+function setGroupOpen(g, v) { try { localStorage.setItem(`finanzas-${g}-open`, v ? '1' : '0'); } catch {} }
+const cardsGroupOpen = () => groupOpen('cards');
+const setCardsGroupOpen = (v) => setGroupOpen('cards', v);
+// Grupos de cuentas: créditos (cuotas o facturas) y tarjetas de crédito
+const isLoan = (a) => !!(a.card?.installments || Array.isArray(a.bills));
+const isCard = (a) => !!a.card && !isLoan(a);
+const ACCOUNT_GROUPS = [
+  { key: 'cards', label: 'Tarjetas de crédito', short: 'Tarjetas', icon: '💳', test: isCard },
+  { key: 'loans', label: 'Créditos', short: 'Créditos', icon: '🏦', test: isLoan }
+];
 function accountRowHtml(a) {
   const b = accountBalance(a.id);
   return `<button class="item" data-edit-acc="${a.id}" style="${a.archived ? 'opacity:.5' : ''}">
@@ -682,8 +691,7 @@ function accountRowHtml(a) {
 
 function viewAccounts() {
   const accs = [...S.accounts].sort((a, b) => a.archived - b.archived || a.position - b.position);
-  const isCredit = (a) => a.card || Array.isArray(a.bills);
-  const cardAccs = accs.filter((a) => isCredit(a) && !a.archived);
+  const isCredit = (a) => isCard(a) || isLoan(a);
   const total = S.accounts.filter((a) => !a.ignoreInBalance && !a.archived).reduce((s, a) => s + accountBalance(a.id), 0);
   return `
     ${pageHead('Cuentas')}
@@ -702,16 +710,21 @@ function viewAccounts() {
       <div class="card list">
         ${accs.filter((a) => !isCredit(a) || a.archived).map(accountRowHtml).join('')}
       </div>
-      ${cardAccs.length ? `<div class="card list" style="margin-top:12px">
-        <button class="item group" data-role="toggle-cards">
-          <span class="icon" style="background:#3b3f45">💳</span>
-          <div class="grow"><div class="ellipsis">Créditos y tarjetas (${cardAccs.length})</div>
-            <div class="small muted">${cardsGroupOpen() ? 'Ocultar' : 'Ver cada tarjeta'}</div></div>
-          <div class="num expense">${money(cardAccs.reduce((t, a) => t + accountBalance(a.id), 0))}</div>
-          <span class="chev ${cardsGroupOpen() ? 'up' : ''}">${SVG.chev}</span>
-        </button>
-        ${cardsGroupOpen() ? cardAccs.map(accountRowHtml).join('') : ''}
-      </div>` : ''}
+      ${ACCOUNT_GROUPS.map((g) => {
+        const list = accs.filter((a) => g.test(a) && !a.archived);
+        if (!list.length) return '';
+        const open = groupOpen(g.key);
+        return `<div class="card list" style="margin-top:12px">
+          <button class="item group" data-group-toggle="${g.key}">
+            <span class="icon" style="background:#3b3f45">${g.icon}</span>
+            <div class="grow"><div class="ellipsis">${g.short} (${list.length})</div>
+              <div class="small muted">${open ? 'Ocultar' : 'Ver detalle'}</div></div>
+            <div class="num expense">${money(list.reduce((t, a) => t + accountBalance(a.id), 0))}</div>
+            <span class="chev ${open ? 'up' : ''}">${SVG.chev}</span>
+          </button>
+          ${open ? list.map(accountRowHtml).join('') : ''}
+        </div>`;
+      }).join('')}
     </div>`;
 }
 
@@ -765,10 +778,11 @@ function openAccountDialog() {
   const accs = S.accounts.filter((a) => !a.archived).sort((a, b) => a.position - b.position);
   const total = S.accounts.filter((a) => !a.ignoreInBalance && !a.archived).reduce((s, a) => s + accountBalance(a.id), 0);
   const toOpt = (a) => ({ id: a.id, name: a.name, icon: icon(a.icon), color: a.color, bal: accountBalance(a.id) });
-  const isCredit = (a) => a.card || Array.isArray(a.bills);
-  const opts = [{ id: 'all', name: 'Total', icon: '💰', color: '#0c3a22', bal: total }].concat(accs.filter((a) => !isCredit(a)).map(toOpt));
-  const cards = accs.filter(isCredit).map(toOpt);
-  let open = cardsGroupOpen() || cards.some((o) => o.id === sel);
+  const opts = [{ id: 'all', name: 'Total', icon: '💰', color: '#0c3a22', bal: total }].concat(accs.filter((a) => !isCard(a) && !isLoan(a)).map(toOpt));
+  const groups = ACCOUNT_GROUPS.map((g) => {
+    const items = accs.filter(g.test).map(toOpt);
+    return { ...g, items, open: groupOpen(g.key) || items.some((o) => o.id === sel) };
+  }).filter((g) => g.items.length);
   const el = document.createElement('div');
   el.className = 'dialog-backdrop';
   const optHtml = (o) => `<button class="opt ${o.id === sel ? 'sel' : ''}" data-id="${o.id}">
@@ -779,12 +793,12 @@ function openAccountDialog() {
     el.innerHTML = `<div class="dialog" role="dialog" aria-label="Seleccione una cuenta">
       <h3>Seleccione una cuenta</h3>
       <div class="opts">${opts.map(optHtml).join('')}
-        ${cards.length ? `<button class="opt group" data-a="toggle-cards">
-          <span class="radio" style="visibility:hidden"></span><span class="icon" style="background:#3b3f45">💳</span>
-          <span class="grow"><div class="name">Créditos (${cards.length})</div>
-            <div class="bal num neg">${money(cards.reduce((t, o) => t + o.bal, 0))}</div></span>
-          <span class="chev ${open ? 'up' : ''}">${SVG.chev}</span></button>
-          ${open ? `<div class="group-items">${cards.map(optHtml).join('')}</div>` : ''}` : ''}
+        ${groups.map((g) => `<button class="opt group" data-g="${g.key}">
+          <span class="radio" style="visibility:hidden"></span><span class="icon" style="background:#3b3f45">${g.icon}</span>
+          <span class="grow"><div class="name">${g.short} (${g.items.length})</div>
+            <div class="bal num neg">${money(g.items.reduce((t, o) => t + o.bal, 0))}</div></span>
+          <span class="chev ${g.open ? 'up' : ''}">${SVG.chev}</span></button>
+          ${g.open ? `<div class="group-items">${g.items.map(optHtml).join('')}</div>` : ''}`).join('')}
       </div>
       <div class="actions"><button data-a="cancel">CANCELAR</button><button data-a="ok">SELECCIONAR</button></div>
     </div>`;
@@ -801,9 +815,10 @@ function openAccountDialog() {
       sel = b.dataset.id; draw(); el.querySelector('.opts').scrollTop = st;
       return;
     }
-    if (b.dataset.a === 'toggle-cards') {
+    if (b.dataset.g) {
+      const g = groups.find((x) => x.key === b.dataset.g);
       const st = el.querySelector('.opts').scrollTop;
-      open = !open; setCardsGroupOpen(open); draw(); el.querySelector('.opts').scrollTop = st;
+      g.open = !g.open; setGroupOpen(g.key, g.open); draw(); el.querySelector('.opts').scrollTop = st;
       return;
     }
     if (b.dataset.a === 'cancel') return el.remove();
@@ -936,7 +951,7 @@ document.addEventListener('click', (e) => {
   if (t.dataset.editTr) return openTransfer(S.transfers.find((x) => x.id === t.dataset.editTr));
   if (t.dataset.editAcc) return openAccount(accById(t.dataset.editAcc));
   if (t.dataset.role === 'new-account') return openAccount();
-  if (t.dataset.role === 'toggle-cards') { setCardsGroupOpen(!cardsGroupOpen()); return render(); }
+  if (t.dataset.groupToggle) { setGroupOpen(t.dataset.groupToggle, !groupOpen(t.dataset.groupToggle)); return render(); }
   if (t.dataset.bills) { const [aid, due] = t.dataset.bills.split('|'); return openBillsSheet(aid, due); }
   if (t.dataset.role === 'new-transfer') return openTransfer();
   if (t.dataset.role === 'cats') return openCategories(t.dataset.v);
