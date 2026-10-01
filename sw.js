@@ -1,5 +1,5 @@
 // Service worker: permite usar la app sin conexión.
-const CACHE = 'finanzas-v24';
+const CACHE = 'finanzas-v25';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'vendor/fflate.js', 'vendor/supabase.js', 'sync.js'];
 
 self.addEventListener('install', (e) => {

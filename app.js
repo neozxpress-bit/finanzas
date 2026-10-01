@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '24';
+const APP_VERSION = '25';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -497,14 +497,28 @@ function rowHtml(t) {
 // ---------- Tarjetas de crédito: próximo pago ----------
 const WEEKDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 // Próxima fecha de pago (si el mes no tiene ese día, el último día del mes)
+// Número de cuota que corresponde a una fecha de pago (1 = primera). null si no es un crédito en cuotas.
+function installmentNumber(card, date) {
+  const inst = card?.installments; if (!inst?.first) return null;
+  const f = parseDate(inst.first);
+  return (date.getFullYear() - f.getFullYear()) * 12 + (date.getMonth() - f.getMonth()) + 1;
+}
 function nextDueDate(card, from = new Date()) {
   if (!card?.dueDay) return null;
+  if (card.installments?.first) {
+    const f = parseDate(card.installments.first);
+    if (from < f) from = f; // no hay pagos antes de la primera cuota
+  }
   const today = new Date(from.getFullYear(), from.getMonth(), from.getDate());
   for (let k = 0; k < 3; k++) {
     const y = today.getFullYear(), m = today.getMonth() + k;
     const last = new Date(y, m + 1, 0).getDate();
     const d = new Date(y, m, Math.min(card.dueDay, last));
-    if (d >= today) return d;
+    if (d >= today) {
+      const n = installmentNumber(card, d);
+      if (n !== null && n > (card.installments.total || 0)) return null; // crédito pagado por completo
+      return d;
+    }
   }
   return null;
 }
@@ -526,7 +540,8 @@ function upcomingPaymentsHtml() {
       return `<button class="item" data-edit-acc="${a.id}">
         ${iconBubble(a.icon, a.color)}
         <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
-          <div class="small ${t.days <= (a.card.remindDays ?? 2) ? 'expense' : 'muted'}">Vence ${esc(t.text)}</div></div>
+          <div class="small ${t.days <= (a.card.remindDays ?? 2) ? 'expense' : 'muted'}">Vence ${esc(t.text)}</div>
+          ${a.card.installments ? `<div class="small muted">Cuota ${installmentNumber(a.card, date)} de ${a.card.installments.total} · ${money(a.card.installments.amount)}</div>` : ''}</div>
         <div class="num ${b < 0 ? 'expense' : ''}">${money(b)}</div>
       </button>`;
     }).join('')}</div>`;
@@ -540,7 +555,7 @@ function accountRowHtml(a) {
   return `<button class="item" data-edit-acc="${a.id}" style="${a.archived ? 'opacity:.5' : ''}">
     ${iconBubble(a.icon, a.color)}
     <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
-      <div class="small muted">${a.archived ? 'Archivada' : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div></div>
+      <div class="small muted">${a.archived ? 'Archivada' : a.card?.installments ? `🗓️ ${a.card.installments.total} cuotas de ${money(a.card.installments.amount)} · día ${a.card.dueDay}` : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div></div>
     <div class="num ${b < 0 ? 'expense' : ''}">${money(b)}</div>
   </button>`;
 }
