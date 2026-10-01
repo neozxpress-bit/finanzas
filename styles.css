@@ -358,3 +358,7 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .dialog .group-items { margin-left: 18px; border-left: 2px solid rgba(31,255,122,.25); padding-left: 4px; }
 .dialog .group-items .icon { width: 42px; height: 42px; font-size: 20px; }
 .dialog .group-items .name { font-size: 17px; }
+
+.group-body[hidden], .group-items[hidden] { display: none; }
+.card.list > .group-body > * + * { border-top: 1px solid var(--line); }
+.card.list > .group-body { border-top: 1px solid var(--line); }

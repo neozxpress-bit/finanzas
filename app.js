@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '28';
+const APP_VERSION = '29';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -718,11 +718,11 @@ function viewAccounts() {
           <button class="item group" data-group-toggle="${g.key}">
             <span class="icon" style="background:#3b3f45">${g.icon}</span>
             <div class="grow"><div class="ellipsis">${g.short} (${list.length})</div>
-              <div class="small muted">${open ? 'Ocultar' : 'Ver detalle'}</div></div>
+              <div class="small muted" data-group-hint>${open ? 'Ocultar' : 'Ver detalle'}</div></div>
             <div class="num expense">${money(list.reduce((t, a) => t + accountBalance(a.id), 0))}</div>
             <span class="chev ${open ? 'up' : ''}">${SVG.chev}</span>
           </button>
-          ${open ? list.map(accountRowHtml).join('') : ''}
+          <div class="group-body" data-group-body="${g.key}" ${open ? '' : 'hidden'}>${list.map(accountRowHtml).join('')}</div>
         </div>`;
       }).join('')}
     </div>`;
@@ -798,7 +798,7 @@ function openAccountDialog() {
           <span class="grow"><div class="name">${g.short} (${g.items.length})</div>
             <div class="bal num neg">${money(g.items.reduce((t, o) => t + o.bal, 0))}</div></span>
           <span class="chev ${g.open ? 'up' : ''}">${SVG.chev}</span></button>
-          ${g.open ? `<div class="group-items">${g.items.map(optHtml).join('')}</div>` : ''}`).join('')}
+          <div class="group-items" data-gi="${g.key}" ${g.open ? '' : 'hidden'}>${g.items.map(optHtml).join('')}</div>`).join('')}
       </div>
       <div class="actions"><button data-a="cancel">CANCELAR</button><button data-a="ok">SELECCIONAR</button></div>
     </div>`;
@@ -811,14 +811,15 @@ function openAccountDialog() {
     if (e.target === el) return el.remove();
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.id) {
-      const opts2 = el.querySelector('.opts'); const st = opts2.scrollTop;
-      sel = b.dataset.id; draw(); el.querySelector('.opts').scrollTop = st;
+      sel = b.dataset.id;
+      el.querySelectorAll('.opt[data-id]').forEach((o) => o.classList.toggle('sel', o.dataset.id === sel));
       return;
     }
     if (b.dataset.g) {
       const g = groups.find((x) => x.key === b.dataset.g);
-      const st = el.querySelector('.opts').scrollTop;
-      g.open = !g.open; setGroupOpen(g.key, g.open); draw(); el.querySelector('.opts').scrollTop = st;
+      g.open = !g.open; setGroupOpen(g.key, g.open);
+      const box = el.querySelector(`[data-gi="${g.key}"]`); if (box) box.hidden = !g.open;
+      b.querySelector('.chev')?.classList.toggle('up', g.open);
       return;
     }
     if (b.dataset.a === 'cancel') return el.remove();
@@ -951,7 +952,16 @@ document.addEventListener('click', (e) => {
   if (t.dataset.editTr) return openTransfer(S.transfers.find((x) => x.id === t.dataset.editTr));
   if (t.dataset.editAcc) return openAccount(accById(t.dataset.editAcc));
   if (t.dataset.role === 'new-account') return openAccount();
-  if (t.dataset.groupToggle) { setGroupOpen(t.dataset.groupToggle, !groupOpen(t.dataset.groupToggle)); return render(); }
+  if (t.dataset.groupToggle) {
+    // Abrir/cerrar sin redibujar la pantalla (evita el pestañeo)
+    const key = t.dataset.groupToggle, open = !groupOpen(key);
+    setGroupOpen(key, open);
+    const body = document.querySelector(`[data-group-body="${key}"]`);
+    if (body) body.hidden = !open;
+    t.querySelector('.chev')?.classList.toggle('up', open);
+    const hint = t.querySelector('[data-group-hint]'); if (hint) hint.textContent = open ? 'Ocultar' : 'Ver detalle';
+    return;
+  }
   if (t.dataset.bills) { const [aid, due] = t.dataset.bills.split('|'); return openBillsSheet(aid, due); }
   if (t.dataset.role === 'new-transfer') return openTransfer();
   if (t.dataset.role === 'cats') return openCategories(t.dataset.v);
