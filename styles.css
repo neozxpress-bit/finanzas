@@ -362,3 +362,9 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .group-body[hidden], .group-items[hidden] { display: none; }
 .card.list > .group-body > * + * { border-top: 1px solid var(--line); }
 .card.list > .group-body { border-top: 1px solid var(--line); }
+
+/* Inversiones */
+.num.invest { color: #7fd6ff; }
+.invest-box { padding: 12px 16px; }
+.invest-box .row { padding: 4px 0; font-size: 15px; }
+.invest-box .row.total { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 8px; font-weight: 700; color: #7fd6ff; }

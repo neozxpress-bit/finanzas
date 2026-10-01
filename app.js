@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '29';
+const APP_VERSION = '30';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -673,25 +673,28 @@ function setGroupOpen(g, v) { try { localStorage.setItem(`finanzas-${g}-open`, v
 const cardsGroupOpen = () => groupOpen('cards');
 const setCardsGroupOpen = (v) => setGroupOpen('cards', v);
 // Grupos de cuentas: créditos (cuotas o facturas) y tarjetas de crédito
-const isLoan = (a) => !!(a.card?.installments || Array.isArray(a.bills));
-const isCard = (a) => !!a.card && !isLoan(a);
+const isInvestment = (a) => !!a.investment;
+const isLoan = (a) => !isInvestment(a) && !!(a.card?.installments || Array.isArray(a.bills));
+const isCard = (a) => !isInvestment(a) && !!a.card && !isLoan(a);
 const ACCOUNT_GROUPS = [
   { key: 'cards', label: 'Tarjetas de crédito', short: 'Tarjetas', icon: '💳', test: isCard },
-  { key: 'loans', label: 'Créditos', short: 'Créditos', icon: '🏦', test: isLoan }
+  { key: 'loans', label: 'Créditos', short: 'Créditos', icon: '🏦', test: isLoan },
+  { key: 'invest', label: 'Inversiones', short: 'Inversiones', icon: '📈', test: isInvestment, positive: true }
 ];
+const isGrouped = (a) => ACCOUNT_GROUPS.some((g) => g.test(a));
 function accountRowHtml(a) {
   const b = accountBalance(a.id);
   return `<button class="item" data-edit-acc="${a.id}" style="${a.archived ? 'opacity:.5' : ''}">
     ${iconBubble(a.icon, a.color)}
     <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
-      <div class="small muted">${a.archived ? 'Archivada' : pendingBills(a).length ? `🔥 ${pendingBills(a).length} facturas por pagar` : a.card?.installments ? `🗓️ ${a.card.installments.total} cuotas de ${money(a.card.installments.amount)} · día ${a.card.dueDay}` : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div></div>
-    <div class="num ${b < 0 ? 'expense' : ''}">${money(b)}</div>
+      <div class="small muted">${a.archived ? 'Archivada' : a.investment ? `📈 Inversión${a.investment.items?.length ? ` · ${a.investment.items.length} partidas` : ''}` : pendingBills(a).length ? `🔥 ${pendingBills(a).length} facturas por pagar` : a.card?.installments ? `🗓️ ${a.card.installments.total} cuotas de ${money(a.card.installments.amount)} · día ${a.card.dueDay}` : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div></div>
+    <div class="num ${a.investment ? 'invest' : b < 0 ? 'expense' : ''}">${money(b)}</div>
   </button>`;
 }
 
 function viewAccounts() {
   const accs = [...S.accounts].sort((a, b) => a.archived - b.archived || a.position - b.position);
-  const isCredit = (a) => isCard(a) || isLoan(a);
+  const isCredit = isGrouped;
   const total = S.accounts.filter((a) => !a.ignoreInBalance && !a.archived).reduce((s, a) => s + accountBalance(a.id), 0);
   return `
     ${pageHead('Cuentas')}
@@ -719,7 +722,7 @@ function viewAccounts() {
             <span class="icon" style="background:#3b3f45">${g.icon}</span>
             <div class="grow"><div class="ellipsis">${g.short} (${list.length})</div>
               <div class="small muted" data-group-hint>${open ? 'Ocultar' : 'Ver detalle'}</div></div>
-            <div class="num expense">${money(list.reduce((t, a) => t + accountBalance(a.id), 0))}</div>
+            <div class="num ${g.positive ? 'invest' : 'expense'}">${g.positive ? 'Invertido ' : ''}${money(list.reduce((t, a) => t + accountBalance(a.id), 0))}</div>
             <span class="chev ${open ? 'up' : ''}">${SVG.chev}</span>
           </button>
           <div class="group-body" data-group-body="${g.key}" ${open ? '' : 'hidden'}>${list.map(accountRowHtml).join('')}</div>
@@ -778,7 +781,7 @@ function openAccountDialog() {
   const accs = S.accounts.filter((a) => !a.archived).sort((a, b) => a.position - b.position);
   const total = S.accounts.filter((a) => !a.ignoreInBalance && !a.archived).reduce((s, a) => s + accountBalance(a.id), 0);
   const toOpt = (a) => ({ id: a.id, name: a.name, icon: icon(a.icon), color: a.color, bal: accountBalance(a.id) });
-  const opts = [{ id: 'all', name: 'Total', icon: '💰', color: '#0c3a22', bal: total }].concat(accs.filter((a) => !isCard(a) && !isLoan(a)).map(toOpt));
+  const opts = [{ id: 'all', name: 'Total', icon: '💰', color: '#0c3a22', bal: total }].concat(accs.filter((a) => !isGrouped(a)).map(toOpt));
   const groups = ACCOUNT_GROUPS.map((g) => {
     const items = accs.filter(g.test).map(toOpt);
     return { ...g, items, open: groupOpen(g.key) || items.some((o) => o.id === sel) };
@@ -796,7 +799,7 @@ function openAccountDialog() {
         ${groups.map((g) => `<button class="opt group" data-g="${g.key}">
           <span class="radio" style="visibility:hidden"></span><span class="icon" style="background:#3b3f45">${g.icon}</span>
           <span class="grow"><div class="name">${g.short} (${g.items.length})</div>
-            <div class="bal num neg">${money(g.items.reduce((t, o) => t + o.bal, 0))}</div></span>
+            <div class="bal num ${g.positive ? '' : 'neg'}">${g.positive ? 'Invertido ' : ''}${money(g.items.reduce((t, o) => t + o.bal, 0))}</div></span>
           <span class="chev ${g.open ? 'up' : ''}">${SVG.chev}</span></button>
           <div class="group-items" data-gi="${g.key}" ${g.open ? '' : 'hidden'}>${g.items.map(optHtml).join('')}</div>`).join('')}
       </div>
@@ -1496,6 +1499,11 @@ function openAccount(acc) {
         : `<button type="button" class="field" data-adjust="${d.id}" style="width:100%"><label>Saldo actual</label><span class="grow right num">${money(accountBalance(d.id))}</span><span style="color:var(--accent)">✏️ Ajustar</span></button>`}
       <div class="field"><label class="grow" style="width:auto">Excluir del saldo total</label><input type="checkbox" data-x="ignoreInBalance" ${d.ignoreInBalance ? 'checked' : ''}></div>
       ${isNew ? '' : `<div class="field"><label class="grow" style="width:auto">Archivar cuenta</label><input type="checkbox" data-x="archived" ${d.archived ? 'checked' : ''}></div>`}
+      ${d.investment?.items?.length ? `<div class="invest-box">
+        <div class="small muted" style="margin-bottom:6px">📈 Detalle de la inversión</div>
+        ${d.investment.items.map((it) => `<div class="row"><span class="grow">${esc(it.label)}</span><span class="num">${money(it.amount)}</span></div>`).join('')}
+        <div class="row total"><span class="grow">Total invertido</span><span class="num">${money(d.investment.items.reduce((t, it) => t + it.amount, 0))}</span></div>
+      </div>` : ''}
       ${pendingBills(d).length ? `<button type="button" class="field" data-allbills="${d.id}" style="width:100%"><label class="grow" style="width:auto">🔥 Facturas por pagar (${pendingBills(d).length})</label><span class="num expense">${money(-pendingBills(d).reduce((t, b) => t + b.amount, 0))}</span><span style="color:var(--accent)">Ver ›</span></button>` : ''}
       <div class="field"><label class="grow" style="width:auto">💳 Es tarjeta de crédito</label><input type="checkbox" data-x="cardOn" ${d.card ? 'checked' : ''}></div>
       <div class="field"><label>Día de pago</label><input data-x="cardDue" inputmode="numeric" pattern="[0-9]*" placeholder="Ej: 5" value="${d.card?.dueDay || ''}"></div>
