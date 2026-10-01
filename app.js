@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '26';
+const APP_VERSION = '27';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -525,7 +525,7 @@ function nextDueDate(card, from = new Date()) {
 function dueText(date) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const days = Math.round((date - today) / 86400000);
-  const when = days === 0 ? 'hoy' : days === 1 ? 'mañana' : `en ${days} días`;
+  const when = days === 0 ? 'hoy' : days === 1 ? 'mañana' : days === -1 ? 'ayer' : days < 0 ? `hace ${-days} días` : `en ${days} días`;
   const wd = date.getDay();
   const weekend = wd === 0 || wd === 6 ? ' · cae fin de semana' : '';
   return { days, text: `${WEEKDAYS[wd]} ${date.getDate()} de ${MONTHS[date.getMonth()]} · ${when}${weekend}` };
@@ -582,6 +582,40 @@ function upcomingPaymentsHtml() {
         <div class="num ${b < 0 ? 'expense' : ''}">${money(b)}</div>
       </button>`;
     }).join('')}</div>` : ''}`;
+}
+
+const pendingBills = (a) => (Array.isArray(a?.bills) ? a.bills.filter((b) => !b.paid) : []);
+
+// Todas las facturas pendientes de una cuenta, por fecha; tocar un grupo permite marcarlas pagadas
+function openAllBillsSheet(accId) {
+  const acc = accById(accId); if (!acc) return;
+  const today = isoDate(new Date());
+  const groups = billGroups().filter((g) => g.a.id === accId);
+  const total = groups.reduce((t, g) => t + g.total, 0);
+  const paid = (acc.bills || []).filter((b) => b.paid).length;
+  openSheet(`
+    <div class="sheet-head"><button data-a="cancel">Cerrar</button><h3>Facturas por pagar</h3><span style="width:60px"></span></div>
+    <div class="card pad" style="text-align:center">
+      <div class="small muted">${esc(acc.name)} · ${groups.reduce((n, g) => n + g.bills.length, 0)} facturas</div>
+      <div class="num expense" style="font-size:26px;font-weight:700">${money(-total)}</div>
+      ${paid ? `<div class="small muted">${paid} ya pagada${paid === 1 ? '' : 's'}</div>` : ''}
+    </div>
+    <div class="card list" style="margin-top:12px">${groups.map((g) => {
+      const late = g.due < today;
+      return `<button class="item" data-group="${g.due}">
+        <span class="icon sm" style="background:${late ? '#c0392b' : '#ec8207'}">${late ? '!' : '🔥'}</span>
+        <div class="grow"><div>${late ? 'Vencida' : 'Vence'} ${esc(dueText(parseDate(g.due)).text)}</div>
+          <div class="small muted ellipsis">N° ${g.bills.map((b) => esc(b.doc)).join(', ')}</div></div>
+        <div class="num ${late ? 'expense' : ''}">${money(g.total)}</div></button>`;
+    }).join('')}</div>
+    <p class="small muted" style="text-align:center">Toca una fecha para marcar sus facturas como pagadas.</p>`,
+  (sh) => {
+    sh.onclick = (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.a === 'cancel') return closeSheet();
+      if (b.dataset.group) { closeSheet(); openBillsSheet(accId, b.dataset.group); }
+    };
+  });
 }
 
 // Marcar facturas como pagadas: registra el pago en la cuenta que paga y baja la deuda
@@ -641,14 +675,15 @@ function accountRowHtml(a) {
   return `<button class="item" data-edit-acc="${a.id}" style="${a.archived ? 'opacity:.5' : ''}">
     ${iconBubble(a.icon, a.color)}
     <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
-      <div class="small muted">${a.archived ? 'Archivada' : a.card?.installments ? `🗓️ ${a.card.installments.total} cuotas de ${money(a.card.installments.amount)} · día ${a.card.dueDay}` : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div></div>
+      <div class="small muted">${a.archived ? 'Archivada' : pendingBills(a).length ? `🔥 ${pendingBills(a).length} facturas por pagar` : a.card?.installments ? `🗓️ ${a.card.installments.total} cuotas de ${money(a.card.installments.amount)} · día ${a.card.dueDay}` : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div></div>
     <div class="num ${b < 0 ? 'expense' : ''}">${money(b)}</div>
   </button>`;
 }
 
 function viewAccounts() {
   const accs = [...S.accounts].sort((a, b) => a.archived - b.archived || a.position - b.position);
-  const cardAccs = accs.filter((a) => a.card && !a.archived);
+  const isCredit = (a) => a.card || Array.isArray(a.bills);
+  const cardAccs = accs.filter((a) => isCredit(a) && !a.archived);
   const total = S.accounts.filter((a) => !a.ignoreInBalance && !a.archived).reduce((s, a) => s + accountBalance(a.id), 0);
   return `
     ${pageHead('Cuentas')}
@@ -665,12 +700,12 @@ function viewAccounts() {
       ${upcomingPaymentsHtml()}
       <h2>Mis cuentas</h2>
       <div class="card list">
-        ${accs.filter((a) => !a.card || a.archived).map(accountRowHtml).join('')}
+        ${accs.filter((a) => !isCredit(a) || a.archived).map(accountRowHtml).join('')}
       </div>
       ${cardAccs.length ? `<div class="card list" style="margin-top:12px">
         <button class="item group" data-role="toggle-cards">
           <span class="icon" style="background:#3b3f45">💳</span>
-          <div class="grow"><div class="ellipsis">Tarjetas de crédito (${cardAccs.length})</div>
+          <div class="grow"><div class="ellipsis">Créditos y tarjetas (${cardAccs.length})</div>
             <div class="small muted">${cardsGroupOpen() ? 'Ocultar' : 'Ver cada tarjeta'}</div></div>
           <div class="num expense">${money(cardAccs.reduce((t, a) => t + accountBalance(a.id), 0))}</div>
           <span class="chev ${cardsGroupOpen() ? 'up' : ''}">${SVG.chev}</span>
@@ -730,8 +765,9 @@ function openAccountDialog() {
   const accs = S.accounts.filter((a) => !a.archived).sort((a, b) => a.position - b.position);
   const total = S.accounts.filter((a) => !a.ignoreInBalance && !a.archived).reduce((s, a) => s + accountBalance(a.id), 0);
   const toOpt = (a) => ({ id: a.id, name: a.name, icon: icon(a.icon), color: a.color, bal: accountBalance(a.id) });
-  const opts = [{ id: 'all', name: 'Total', icon: '💰', color: '#0c3a22', bal: total }].concat(accs.filter((a) => !a.card).map(toOpt));
-  const cards = accs.filter((a) => a.card).map(toOpt);
+  const isCredit = (a) => a.card || Array.isArray(a.bills);
+  const opts = [{ id: 'all', name: 'Total', icon: '💰', color: '#0c3a22', bal: total }].concat(accs.filter((a) => !isCredit(a)).map(toOpt));
+  const cards = accs.filter(isCredit).map(toOpt);
   let open = cardsGroupOpen() || cards.some((o) => o.id === sel);
   const el = document.createElement('div');
   el.className = 'dialog-backdrop';
@@ -745,7 +781,7 @@ function openAccountDialog() {
       <div class="opts">${opts.map(optHtml).join('')}
         ${cards.length ? `<button class="opt group" data-a="toggle-cards">
           <span class="radio" style="visibility:hidden"></span><span class="icon" style="background:#3b3f45">💳</span>
-          <span class="grow"><div class="name">Tarjetas (${cards.length})</div>
+          <span class="grow"><div class="name">Créditos (${cards.length})</div>
             <div class="bal num neg">${money(cards.reduce((t, o) => t + o.bal, 0))}</div></span>
           <span class="chev ${open ? 'up' : ''}">${SVG.chev}</span></button>
           ${open ? `<div class="group-items">${cards.map(optHtml).join('')}</div>` : ''}` : ''}
@@ -1412,6 +1448,7 @@ function openEntityEditor({ title, entity, isNew, extraFields, onSave, onDelete,
       const b = e.target.closest('button'); if (!b) return;
       if (b.dataset.a === 'cancel') return closeSheet();
       if (b.dataset.adjust) { closeSheet(); return openBalanceEditor(b.dataset.adjust); }
+      if (b.dataset.allbills) { closeSheet(); return openAllBillsSheet(b.dataset.allbills); }
       if (b.dataset.color) { collect(sh); d.color = b.dataset.color; const y = sh.scrollTop; draw(sh); sh.scrollTop = y; return; }
       if (b.dataset.icon) { collect(sh); d.icon = b.dataset.icon; const y = sh.scrollTop; draw(sh); sh.scrollTop = y; return; }
       if (b.dataset.a === 'delete') { if (await onDelete(d)) { await save(); closeSheet(); render(); } return; }
@@ -1434,6 +1471,7 @@ function openAccount(acc) {
         : `<button type="button" class="field" data-adjust="${d.id}" style="width:100%"><label>Saldo actual</label><span class="grow right num">${money(accountBalance(d.id))}</span><span style="color:var(--accent)">✏️ Ajustar</span></button>`}
       <div class="field"><label class="grow" style="width:auto">Excluir del saldo total</label><input type="checkbox" data-x="ignoreInBalance" ${d.ignoreInBalance ? 'checked' : ''}></div>
       ${isNew ? '' : `<div class="field"><label class="grow" style="width:auto">Archivar cuenta</label><input type="checkbox" data-x="archived" ${d.archived ? 'checked' : ''}></div>`}
+      ${pendingBills(d).length ? `<button type="button" class="field" data-allbills="${d.id}" style="width:100%"><label class="grow" style="width:auto">🔥 Facturas por pagar (${pendingBills(d).length})</label><span class="num expense">${money(-pendingBills(d).reduce((t, b) => t + b.amount, 0))}</span><span style="color:var(--accent)">Ver ›</span></button>` : ''}
       <div class="field"><label class="grow" style="width:auto">💳 Es tarjeta de crédito</label><input type="checkbox" data-x="cardOn" ${d.card ? 'checked' : ''}></div>
       <div class="field"><label>Día de pago</label><input data-x="cardDue" inputmode="numeric" pattern="[0-9]*" placeholder="Ej: 5" value="${d.card?.dueDay || ''}"></div>
       <div class="field"><label>Día de facturación</label><input data-x="cardClose" inputmode="numeric" pattern="[0-9]*" placeholder="Opcional" value="${d.card?.closingDay || ''}"></div>`,
