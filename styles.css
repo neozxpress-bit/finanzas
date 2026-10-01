@@ -368,3 +368,9 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .invest-box { padding: 12px 16px; }
 .invest-box .row { padding: 4px 0; font-size: 15px; }
 .invest-box .row.total { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 8px; font-weight: 700; color: #7fd6ff; }
+
+/* Buscador de categorías */
+.cat-search { display: flex; align-items: center; gap: 8px; margin: 12px 12px 0; padding: 0 12px; background: var(--card-2); border-radius: 12px; }
+.cat-search .line-ico { width: 18px; height: 18px; }
+.cat-search input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: var(--text); font-size: 16px; padding: 11px 0; }
+.cat-grid button[hidden] { display: none; }

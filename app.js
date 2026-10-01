@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '32';
+const APP_VERSION = '33';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -1076,6 +1076,19 @@ function calcEval(expr) {
   try { const v = Function(`"use strict";return (${e})`)(); return Number.isFinite(v) ? Math.round(v * 100) / 100 : null; } catch { return null; }
 }
 
+// Filtra la grilla de categorías por nombre (inicio de palabra o contenido), sin tildes ni mayúsculas
+function filterCategoryGrid(sh, q) {
+  const f = fold(q.trim());
+  let shown = 0;
+  sh.querySelectorAll('.cat-grid [data-cat]').forEach((b) => {
+    const n = b.dataset.name || '';
+    const match = f ? n.includes(f) : !b.hasAttribute('data-extra');
+    b.hidden = !match; if (match) shown++;
+  });
+  const more = $('.see-all', sh); if (more) more.hidden = !!f;
+  const empty = $('.cat-empty', sh); if (empty) empty.hidden = !f || shown > 0;
+}
+
 const TOP_CATS = 8;
 function categoryUsage(type) {
   const since = new Date(); since.setMonth(since.getMonth() - 6);
@@ -1186,9 +1199,12 @@ function openTx(tx, type = 'expense') {
       </div>
       <h2>Categoría</h2>
       <div class="card">
+        <div class="cat-search"><span>${SVG.search}</span><input type="search" data-f="catsearch" placeholder="Buscar categoría" autocomplete="off" enterkeyhint="done"></div>
         <div class="cat-grid big">
-          ${cats.map((c) => `<button data-cat="${c.id}" class="${d.categoryId === c.id ? 'sel' : ''}">${iconBubble(c.icon, c.color)}<span class="ellipsis">${esc(c.name)}</span></button>`).join('')}
+          ${cats.map((c) => `<button data-cat="${c.id}" data-name="${esc(fold(c.name))}" class="${d.categoryId === c.id ? 'sel' : ''}">${iconBubble(c.icon, c.color)}<span class="ellipsis">${esc(c.name)}</span></button>`).join('')}
+          ${all.filter((c) => !cats.includes(c)).map((c) => `<button data-cat="${c.id}" data-name="${esc(fold(c.name))}" data-extra hidden>${iconBubble(c.icon, c.color)}<span class="ellipsis">${esc(c.name)}</span></button>`).join('')}
         </div>
+        <div class="small muted cat-empty" hidden style="text-align:center;padding:4px 0 12px">Sin coincidencias</div>
         ${all.length > TOP_CATS ? `<button class="see-all" data-a="toggle-cats">${d.showAll ? 'Ver menos ▴' : `Ver todas (${all.length}) ▾`}</button>` : ''}
       </div>
       <button class="btn save-btn" data-a="save">Guardar</button>
@@ -1292,6 +1308,12 @@ function openTx(tx, type = 'expense') {
       const y = sh.scrollTop; draw(sh); sh.scrollTop = y;
     };
     sh.onkeydown = (e) => {
+      if (e.key === 'Enter' && e.target.dataset.f === 'catsearch') {
+        e.preventDefault();
+        const first = [...sh.querySelectorAll('.cat-grid [data-cat]')].find((b) => !b.hidden);
+        if (first) first.click();
+        return;
+      }
       if (e.key === 'Enter' && e.target.dataset.f === 'newtag') {
         e.preventDefault();
         const q = e.target.value.trim();
@@ -1306,6 +1328,7 @@ function openTx(tx, type = 'expense') {
         if (S.currency === 'CLP') el.value = v ? amountToInput(v) : '';
       }
       if (e.target.dataset.f === 'newtag') $('[data-role="tag-chips"]', sh).innerHTML = tagChips(d.tags, e.target.value);
+      if (e.target.dataset.f === 'catsearch') filterCategoryGrid(sh, e.target.value);
     };
   });
 }
