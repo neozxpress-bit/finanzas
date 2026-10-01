@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '25';
+const APP_VERSION = '26';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -530,13 +530,50 @@ function dueText(date) {
   const weekend = wd === 0 || wd === 6 ? ' · cae fin de semana' : '';
   return { days, text: `${WEEKDAYS[wd]} ${date.getDate()} de ${MONTHS[date.getMonth()]} · ${when}${weekend}` };
 }
+// Facturas por pagar guardadas en una cuenta (a.bills), agrupadas por fecha de vencimiento
+function billGroups() {
+  const groups = new Map();
+  for (const a of S.accounts) {
+    if (a.archived || !Array.isArray(a.bills)) continue;
+    for (const b of a.bills) {
+      if (b.paid) continue;
+      const k = `${a.id}|${b.due}`;
+      if (!groups.has(k)) groups.set(k, { a, due: b.due, bills: [], total: 0 });
+      const g = groups.get(k); g.bills.push(b); g.total += b.amount;
+    }
+  }
+  return [...groups.values()].sort((x, y) => x.due.localeCompare(y.due));
+}
+
 function upcomingPaymentsHtml() {
-  const cards = S.accounts.filter((a) => !a.archived && a.card?.dueDay)
-    .map((a) => ({ a, date: nextDueDate(a.card) })).filter((x) => x.date).sort((x, y) => x.date - y.date);
-  if (!cards.length) return '';
-  return `<h2>Próximos pagos</h2>
-    <div class="card list">${cards.map(({ a, date }) => {
-      const b = accountBalance(a.id), t = dueText(date);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const items = S.accounts.filter((a) => !a.archived && a.card?.dueDay)
+    .map((a) => ({ kind: 'card', a, date: nextDueDate(a.card) })).filter((x) => x.date);
+  const groups = billGroups();
+  const overdue = groups.filter((g) => parseDate(g.due) < today);
+  const upcoming = groups.filter((g) => parseDate(g.due) >= today).slice(0, 6);
+  for (const g of upcoming) items.push({ kind: 'bills', g, a: g.a, date: parseDate(g.due) });
+  items.sort((x, y) => x.date - y.date);
+  if (!items.length && !overdue.length) return '';
+  const vendor = (g) => g.bills[0]?.vendor || g.a.name;
+  const billRow = (g, label, cls) => `<button class="item" data-bills="${g.a.id}|${g.due}">
+      <span class="icon" style="background:#c0392b">🔥</span>
+      <div class="grow"><div class="ellipsis">${esc(vendor(g))} · ${g.bills.length} factura${g.bills.length === 1 ? '' : 's'}</div>
+        <div class="small ${cls}">${esc(label)}</div>
+        <div class="small muted ellipsis">N° ${g.bills.map((b) => esc(b.doc)).join(', ')}</div></div>
+      <div class="num expense">${money(-g.total)}</div>
+    </button>`;
+  const overdueTotal = overdue.reduce((t, g) => t + g.total, 0);
+  return `${overdue.length ? `<h2 class="expense">Vencidas · ${money(-overdueTotal)}</h2>
+    <div class="card list">${overdue.map((g) => {
+      const days = Math.round((today - parseDate(g.due)) / 86400000);
+      return billRow(g, `Venció hace ${days} día${days === 1 ? '' : 's'} (${shortDM(g.due)})`, 'expense');
+    }).join('')}</div>` : ''}
+    ${items.length ? `<h2>Próximos pagos</h2>
+    <div class="card list">${items.map((it) => {
+      const t = dueText(it.date);
+      if (it.kind === 'bills') return billRow(it.g, `Vence ${t.text}`, t.days <= 2 ? 'expense' : 'muted');
+      const { a, date } = it, b = accountBalance(a.id);
       return `<button class="item" data-edit-acc="${a.id}">
         ${iconBubble(a.icon, a.color)}
         <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
@@ -544,7 +581,56 @@ function upcomingPaymentsHtml() {
           ${a.card.installments ? `<div class="small muted">Cuota ${installmentNumber(a.card, date)} de ${a.card.installments.total} · ${money(a.card.installments.amount)}</div>` : ''}</div>
         <div class="num ${b < 0 ? 'expense' : ''}">${money(b)}</div>
       </button>`;
-    }).join('')}</div>`;
+    }).join('')}</div>` : ''}`;
+}
+
+// Marcar facturas como pagadas: registra el pago en la cuenta que paga y baja la deuda
+function openBillsSheet(accId, due) {
+  const acc = accById(accId); if (!acc) return;
+  const bills = (acc.bills || []).filter((b) => b.due === due && !b.paid);
+  if (!bills.length) return;
+  const sel = new Set(bills.map((b) => b.doc));
+  const payers = S.accounts.filter((a) => !a.archived && !a.card && !a.bills && a.id !== accId).sort((a, b) => a.position - b.position);
+  const defPayer = payers.find((a) => /comercializadora/i.test(a.name))?.id || payers[0]?.id;
+  const draw = (sh) => {
+    const total = bills.filter((b) => sel.has(b.doc)).reduce((t, b) => t + b.amount, 0);
+    sh.innerHTML = `<div class="grip"></div>
+      <div class="sheet-head"><button data-a="cancel">Cerrar</button><h3>Facturas ${esc(bills[0].vendor || '')}</h3><span style="width:60px"></span></div>
+      <p class="small muted" style="text-align:center;margin:0 0 10px">Vence el ${esc(dueText(parseDate(due)).text)}</p>
+      <div class="card list">${bills.map((b) => `<label class="item" style="cursor:pointer">
+        <input type="checkbox" data-doc="${esc(b.doc)}" ${sel.has(b.doc) ? 'checked' : ''} style="width:22px;height:22px;accent-color:var(--accent)">
+        <div class="grow"><div>Factura N° ${esc(b.doc)}</div><div class="small muted">Emitida ${shortDM(b.issued || due)}</div></div>
+        <div class="num">${money(b.amount)}</div></label>`).join('')}</div>
+      <div class="card list" style="margin-top:12px">
+        <div class="field"><label>Pagar desde</label><select data-f="payer">${payers.map((a) => `<option value="${a.id}" ${a.id === defPayer ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
+        <div class="field"><label>Fecha de pago</label><input type="date" data-f="date" value="${isoDate(new Date())}"></div>
+      </div>
+      <button class="btn save-btn" data-a="pay" ${total ? '' : 'disabled'}>Marcar pagadas · ${money(total)}</button>
+      <p class="small muted" style="text-align:center">Se registra como gasto "Proveedores" en la cuenta que paga (con el N° de factura) y baja la deuda de ${esc(acc.name)}.</p>`;
+  };
+  openSheet('', (sh) => {
+    draw(sh);
+    sh.onchange = (e) => { if (e.target.dataset.doc) { e.target.checked ? sel.add(e.target.dataset.doc) : sel.delete(e.target.dataset.doc); const p = $('[data-f="payer"]', sh).value, d = $('[data-f="date"]', sh).value; draw(sh); $('[data-f="payer"]', sh).value = p; $('[data-f="date"]', sh).value = d; } };
+    sh.onclick = async (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.a === 'cancel') return closeSheet();
+      if (b.dataset.a !== 'pay') return;
+      const payer = $('[data-f="payer"]', sh).value, date = $('[data-f="date"]', sh).value || isoDate(new Date());
+      const chosen = bills.filter((x) => sel.has(x.doc)); if (!chosen.length) return;
+      const prov = S.categories.find((c) => c.type === 'expense' && /^proveedores$/i.test(c.name))?.id || 'other_expense';
+      const now = new Date().toISOString();
+      for (const x of chosen) {
+        x.paid = true; x.paidDate = date;
+        const tag = x.vendor || 'Proveedor';
+        S.transactions.push(
+          { id: uid(), type: 'expense', amount: x.amount, date, accountId: payer, categoryId: prov, note: String(x.doc), tags: [tag], photos: [], created: now, modified: now },
+          { id: uid(), type: 'income', amount: x.amount, date, accountId: accId, categoryId: ADJUST_CAT.id, adjust: true, note: `Pago factura ${x.doc}`, tags: [tag], photos: [], created: now, modified: now });
+      }
+      acc.bills = [...acc.bills]; // forzar cambio para sincronizar
+      await save(); closeSheet(); render();
+      toast(`${chosen.length} factura${chosen.length === 1 ? '' : 's'} pagada${chosen.length === 1 ? '' : 's'}`);
+    };
+  });
 }
 
 // Grupo desplegable de tarjetas (se recuerda abierto/cerrado en este dispositivo)
@@ -815,6 +901,7 @@ document.addEventListener('click', (e) => {
   if (t.dataset.editAcc) return openAccount(accById(t.dataset.editAcc));
   if (t.dataset.role === 'new-account') return openAccount();
   if (t.dataset.role === 'toggle-cards') { setCardsGroupOpen(!cardsGroupOpen()); return render(); }
+  if (t.dataset.bills) { const [aid, due] = t.dataset.bills.split('|'); return openBillsSheet(aid, due); }
   if (t.dataset.role === 'new-transfer') return openTransfer();
   if (t.dataset.role === 'cats') return openCategories(t.dataset.v);
   if (t.dataset.role === 'export-json') return exportJSON();
