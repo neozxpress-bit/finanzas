@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '31';
+const APP_VERSION = '32';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -762,8 +762,10 @@ function viewMore() {
         <label class="item" style="cursor:pointer"><span class="icon sm" style="background:#258877">↺</span>
           <div class="grow">Restaurar copia de seguridad<div class="small muted">Desde un archivo .json o .zip exportado</div></div>
           <input type="file" accept=".json,.zip,application/json,application/zip" data-role="import-json" hidden></label>
-        <button class="item" data-role="export-csv"><span class="icon sm" style="background:#ec8207">▦</span>
-          <div class="grow">Exportar a Excel (CSV)</div></button>
+        <button class="item" data-role="export-xlsx"><span class="icon sm" style="background:#1d6f42">▦</span>
+          <div class="grow">Exportar a Excel<div class="small muted">Planilla mensual "Administración Financiera"</div></div></button>
+        <button class="item" data-role="export-csv"><span class="icon sm" style="background:#ec8207">≡</span>
+          <div class="grow">Exportar todos los movimientos (CSV)</div></button>
         <button class="item" data-role="wipe"><span class="icon sm" style="background:#c0392b">✕</span>
           <div class="grow expense">Borrar todos los datos</div></button>
       </div>
@@ -983,6 +985,7 @@ document.addEventListener('click', (e) => {
   if (t.dataset.role === 'cats') return openCategories(t.dataset.v);
   if (t.dataset.role === 'export-json') return exportJSON();
   if (t.dataset.role === 'export-csv') return exportCSV();
+  if (t.dataset.role === 'export-xlsx') return openExportXlsx();
   if (t.dataset.role === 'wipe') return wipe();
   if (t.dataset.role === 'update-app') return updateApp();
 });
@@ -1637,6 +1640,174 @@ function exportCSV() {
     lines.push([t.date, 'Transferencia', t.amount, '', q(`${accById(t.fromId)?.name} → ${accById(t.toId)?.name}`), q(t.note), ''].join(';'));
   }
   download(`finanzas-${isoDate(new Date())}.csv`, '﻿' + lines.join('\n'), 'text/csv');
+}
+
+// ---------- Exportar a Excel con el formato "Administración Financiera" ----------
+const EXCEL_BLOCKS = [
+  { title: 'Obligaciones Personales FAMILIA', head: 'FFB4C6E7', sub: 'FFD9E1F3', cats: ['familia', 'regalos y cumpleaños', 'regalos'] },
+  { title: 'Comida - supermercado - carnicería - Verdulería', head: 'FFFFE498', sub: 'FFFDF1CB', cats: ['comestibles', 'hogar', 'golosinas', 'café (reunión)', 'cafe', 'café', 'lider'] },
+  { title: 'Transporte - Combustible - Taller - Mantención', head: 'FFC5E0B3', sub: 'FFE1EED9', cats: ['auto', 'moto', 'transporte'] },
+  { title: 'Salud - Educación - Ropa', head: 'FFF6CAAB', sub: 'FFFAE4D4', cats: ['salud', 'educación', 'ropa', 'deportes'] },
+  { title: 'Deudas (ctas de banco - créditos)', head: 'FFFFD965', sub: 'FFFFE498', cats: ['crédito', 'comisión banco', 'santander', 'falabella', 'tenpo crédito', 'mach', 'mercadolibre', 'x pagar'] },
+  { title: 'AHORRO - INVERSIONES - DONACIONES - URGENCIAS', head: 'FF7A7A7A', sub: 'FFBEBEBE', font: 'FFFFFFFF', cats: ['ahorros', 'x recuperar'], investTransfers: true },
+  { title: 'Distracciones - cine - Vacaciones - Paseos - Restaurant', head: 'FF8496B0', sub: 'FFD9E1F3', font: 'FFFFFFFF', cats: ['entretenimiento', 'ocio', 'vacaciones'] },
+  { title: 'EMPRESA (proveedores - sueldos - insumos)', head: 'FF9DC3E6', sub: 'FFDDEBF7', cats: ['proveedores', 'sueldos', 'pago flex', 'gastos web', 'inmueble e insumos', 'bodega', 'gasfix', 'bolton', 'cristian figueroa', 'trámites varios'] },
+  { title: 'OTROS GASTOS', head: 'FFD0CECE', sub: 'FFEDEDED', cats: [], fallback: true },
+  { title: 'ACTIVO 1 (sueldo y otros ingresos)', head: 'FF92D050', sub: 'FFC5E0B3', income: 'salary', transfersIn: true },
+  { title: 'ACTIVO 2 (ventas y negocios)', head: 'FFBDD6EE', sub: 'FFDEEAF6', income: 'business' }
+];
+const SALARY_INCOME = ['ingresos', 'otros', 'regalos', 'vicente'];
+
+function excelBlockFor(t) {
+  const name = fold(catById(t.categoryId)?.name || '');
+  if (t.type === 'income') return EXCEL_BLOCKS.findIndex((b) => b.income === (SALARY_INCOME.map(fold).includes(name) ? 'salary' : 'business'));
+  const i = EXCEL_BLOCKS.findIndex((b) => b.cats?.map(fold).includes(name));
+  return i >= 0 ? i : EXCEL_BLOCKS.findIndex((b) => b.fallback);
+}
+
+function openExportXlsx() {
+  const accs = S.accounts.filter((a) => !a.archived).sort((a, b) => a.position - b.position);
+  const a0 = UI.anchor;
+  const months = [];
+  for (let k = 0; k < 18; k++) { const d = new Date(a0.getFullYear(), a0.getMonth() - k, 1); months.push(d); }
+  openSheet(`
+    <div class="sheet-head"><button data-a="cancel">Cancelar</button><h3>Exportar a Excel</h3><span style="width:60px"></span></div>
+    <div class="card list">
+      <div class="field"><label>Cuenta</label><select data-f="acc">${accs.map((a) => `<option value="${a.id}" ${a.id === UI.account ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>Mes</label><select data-f="month">
+        <option value="year">Todo ${a0.getFullYear()} (una hoja por mes)</option>
+        ${months.map((d, i) => `<option value="${d.getFullYear()}-${d.getMonth()}" ${i === 0 ? 'selected' : ''}>${MONTHS[d.getMonth()]} ${d.getFullYear()}</option>`).join('')}
+      </select></div>
+    </div>
+    <button class="btn save-btn" data-a="go">Crear planilla</button>
+    <p class="small muted" style="text-align:center">Mismo formato de tu planilla "Administración Financiera": bloques por tipo de gasto, ACTIVO 1 y 2, totales y excedente. Incluye una hoja con todos los movimientos.</p>`,
+  (sh) => {
+    sh.onclick = async (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.a === 'cancel') return closeSheet();
+      if (b.dataset.a !== 'go') return;
+      const accId = $('[data-f="acc"]', sh).value, m = $('[data-f="month"]', sh).value;
+      b.disabled = true; b.textContent = 'Creando planilla…';
+      try {
+        const list = m === 'year' ? Array.from({ length: 12 }, (_, i) => [a0.getFullYear(), i]).filter(([y, i]) => new Date(y, i, 1) <= new Date())
+          : [m.split('-').map(Number)];
+        await exportXlsx(accId, list);
+        closeSheet();
+      } catch (err) { console.error(err); alert('No se pudo crear el Excel: ' + err.message); b.disabled = false; b.textContent = 'Crear planilla'; }
+    };
+  });
+}
+
+async function exportXlsx(accId, monthList) {
+  if (!window.ExcelJS) await loadScript('vendor/exceljs.min.js');
+  const acc = accById(accId);
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Finanzas';
+  const thin = { style: 'thin', color: { argb: 'FFBFBFBF' } };
+  const border = { top: thin, left: thin, bottom: thin, right: thin };
+  const MONEY = '"$"#,##0;[Red]-"$"#,##0';
+  const ncol = EXCEL_BLOCKS.length * 2;
+  const colL = (n) => { let s = ''; for (n++; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
+
+  for (const [y, m] of monthList) {
+    const from = isoDate(new Date(y, m, 1)), to = isoDate(new Date(y, m + 1, 0));
+    const inMonth = (d) => d >= from && d <= to;
+    const items = EXCEL_BLOCKS.map(() => []);
+    for (const t of S.transactions) {
+      if (t.accountId !== accId || t.adjust || !inMonth(t.date)) continue;
+      const c = catById(t.categoryId);
+      const det = `${t.date.slice(8)}/${t.date.slice(5, 7)} · ${t.note || c?.name || ''}${(t.tags || []).length ? ' #' + t.tags.join(' #') : ''}`;
+      items[excelBlockFor(t)].push({ det, amt: t.amount, date: t.date });
+    }
+    const invIdx = EXCEL_BLOCKS.findIndex((b) => b.investTransfers), inIdx = EXCEL_BLOCKS.findIndex((b) => b.transfersIn);
+    for (const t of S.transfers) {
+      if (!inMonth(t.date)) continue;
+      if (t.fromId === accId && accById(t.toId)?.investment) items[invIdx].push({ det: `${t.date.slice(8)}/${t.date.slice(5, 7)} · Inversión ${accById(t.toId).name}${t.note ? ' · ' + t.note : ''}`, amt: t.amount, date: t.date });
+      if (t.toId === accId) items[inIdx].push({ det: `${t.date.slice(8)}/${t.date.slice(5, 7)} · Transferencia desde ${accById(t.fromId)?.name || ''}`, amt: t.toAmount ?? t.amount, date: t.date });
+    }
+    items.forEach((l) => l.sort((p, q) => p.date.localeCompare(q.date)));
+
+    const ws = wb.addWorksheet(`${MONTHS[m].slice(0, 1).toUpperCase() + MONTHS[m].slice(1)} ${y}`, {
+      views: [{ state: 'frozen', ySplit: 3 }],
+      pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 }
+    });
+    for (let i = 0; i < ncol; i++) ws.getColumn(i + 1).width = i % 2 === 0 ? 30 : 13;
+    // Título
+    ws.mergeCells(1, 1, 1, ncol);
+    Object.assign(ws.getCell(1, 1), { value: `Administración Financiera — ${acc?.name || ''} — ${MONTHS[m]} ${y}` });
+    ws.getCell(1, 1).font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+    ws.getCell(1, 1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F4C3D' } };
+    ws.getCell(1, 1).alignment = { vertical: 'middle', horizontal: 'center' };
+    ws.getRow(1).height = 26; ws.getRow(2).height = 42;
+    // Encabezados de bloques
+    EXCEL_BLOCKS.forEach((b, i) => {
+      const c = i * 2 + 1;
+      ws.mergeCells(2, c, 2, c + 1);
+      const h = ws.getCell(2, c);
+      h.value = b.title; h.font = { bold: true, size: 10, color: { argb: b.font || 'FF000000' } };
+      h.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: b.head } };
+      h.alignment = { wrapText: true, vertical: 'middle', horizontal: 'center' }; h.border = border;
+      ['DETALLE', 'COSTO'].forEach((txt, k) => {
+        const cell = ws.getCell(3, c + k);
+        cell.value = txt; cell.font = { bold: true, size: 9 }; cell.alignment = { horizontal: 'center' };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: b.sub } }; cell.border = border;
+      });
+    });
+    // Filas
+    const rows = Math.max(20, ...items.map((l) => l.length));
+    for (let r = 0; r < rows; r++) {
+      EXCEL_BLOCKS.forEach((b, i) => {
+        const it = items[i][r];
+        const cd = ws.getCell(4 + r, i * 2 + 1), cc = ws.getCell(4 + r, i * 2 + 2);
+        cd.value = it ? it.det : null; cc.value = it ? it.amt : null;
+        for (const cell of [cd, cc]) { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F1F1' } }; cell.border = border; cell.font = { size: 10 }; }
+        cc.numFmt = MONEY;
+      });
+    }
+    // TOTAL
+    const tr = 4 + rows;
+    EXCEL_BLOCKS.forEach((b, i) => {
+      const cd = ws.getCell(tr, i * 2 + 1), cc = ws.getCell(tr, i * 2 + 2);
+      cd.value = 'TOTAL'; cc.value = { formula: `SUM(${colL(i * 2 + 1)}4:${colL(i * 2 + 1)}${tr - 1})` };
+      for (const cell of [cd, cc]) { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFA5A5A5' } }; cell.font = { bold: true }; cell.border = border; }
+      cc.numFmt = MONEY;
+    });
+    // Resumen (como en tu planilla)
+    const totalRef = (pred) => EXCEL_BLOCKS.map((b, i) => (pred(b) ? `${colL(i * 2 + 1)}${tr}` : null)).filter(Boolean).join(',');
+    const sr = tr + 2;
+    const summary = [
+      ['TOTAL INGRESOS', { formula: `SUM(${totalRef((b) => b.income)})` }, 'FF92D050'],
+      ['GASTOS TOTAL', { formula: `SUM(${totalRef((b) => !b.income)})` }, 'FFF4B183'],
+      ['EXCEDENTE', { formula: `B${sr}-B${sr + 1}` }, 'FFFFE699'],
+      ['SALDO DE LA CUENTA (hoy)', accountBalance(accId), 'FFDDEBF7']
+    ];
+    summary.forEach(([label, val, color], k) => {
+      const l = ws.getCell(sr + k, 1), v = ws.getCell(sr + k, 2);
+      l.value = label; v.value = val; v.numFmt = MONEY;
+      for (const cell of [l, v]) { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color } }; cell.font = { bold: true }; cell.border = border; }
+    });
+  }
+
+  // Hoja con todos los movimientos del período
+  const all = wb.addWorksheet('Movimientos', { views: [{ state: 'frozen', ySplit: 1 }] });
+  all.columns = [
+    { header: 'Fecha', key: 'f', width: 12 }, { header: 'Tipo', key: 't', width: 14 }, { header: 'Monto', key: 'm', width: 14 },
+    { header: 'Bloque', key: 'b', width: 34 }, { header: 'Categoría', key: 'c', width: 22 }, { header: 'Nota', key: 'n', width: 40 }, { header: 'Etiquetas', key: 'e', width: 28 }
+  ];
+  all.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  all.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F4C3D' } };
+  const ranges = monthList.map(([y, m]) => [isoDate(new Date(y, m, 1)), isoDate(new Date(y, m + 1, 0))]);
+  const inAny = (d) => ranges.some(([a, b]) => d >= a && d <= b);
+  for (const t of [...S.transactions].filter((t) => t.accountId === accId && inAny(t.date)).sort((a, b) => a.date.localeCompare(b.date))) {
+    const row = all.addRow({ f: parseDate(t.date), t: t.adjust ? 'Ajuste de saldo' : t.type === 'income' ? 'Ingreso' : 'Gasto', m: t.type === 'income' ? t.amount : -t.amount,
+      b: t.adjust ? '' : EXCEL_BLOCKS[excelBlockFor(t)].title, c: t.adjust ? 'Ajuste de saldo' : catById(t.categoryId)?.name || '', n: t.note || '', e: (t.tags || []).join(', ') });
+    row.getCell('f').numFmt = 'dd-mm-yyyy'; row.getCell('m').numFmt = MONEY;
+  }
+
+  const buf = await wb.xlsx.writeBuffer();
+  const [y0, m0] = monthList[0];
+  const name = `Administración Financiera - ${acc?.name || 'cuenta'} - ${monthList.length > 1 ? y0 : `${MONTHS[m0]} ${y0}`}.xlsx`.replace(/[\\/:*?"<>|]/g, '');
+  await download(name, new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 }
 
 async function importJSONFile(file) {
