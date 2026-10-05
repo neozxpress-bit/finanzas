@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '41';
+const APP_VERSION = '42';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -790,7 +790,13 @@ function viewAccounts() {
             <span class="icon" style="background:#3b3f45">${g.icon}</span>
             <div class="grow"><div class="ellipsis">${g.short} (${list.length})</div>
               <div class="small muted" data-group-hint>${open ? 'Ocultar' : 'Ver detalle'}</div></div>
-            <div class="num ${g.positive ? 'invest' : 'expense'}">${g.positive ? 'Invertido ' : ''}${money(list.reduce((t, a) => t + accountBalance(a.id), 0))}</div>
+            <div class="right"><div class="num ${g.positive ? 'invest' : 'expense'}">${g.positive ? 'Invertido ' : ''}${money(list.reduce((t, a) => t + accountBalance(a.id), 0))}</div>
+              ${g.positive ? '' : (() => {
+                const lim = list.filter((a) => a.creditLimit > 0);
+                if (!lim.length) return `<div class="small muted">Disponible: sin cupo</div>`;
+                const free = lim.reduce((t, a) => t + cupoAvailable(a.creditLimit, accountBalance(a.id)), 0);
+                return `<div class="small"><span class="muted">Disponible</span> <span class="num ${free < 0 ? 'expense' : 'income'}">${money(free)}</span></div>`;
+              })()}</div>
             <span class="chev ${open ? 'up' : ''}">${SVG.chev}</span>
           </button>
           <div class="group-body" data-group-body="${g.key}" ${open ? '' : 'hidden'}>${list.map(accountRowHtml).join('')}</div>
