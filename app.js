@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '34';
+const APP_VERSION = '35';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -572,14 +572,14 @@ function upcomingPaymentsHtml() {
     ${items.length ? `<h2 class="soon">Próximos pagos</h2>
     <div class="card list">${items.map((it) => {
       const t = dueText(it.date);
-      if (it.kind === 'bills') return billRow(it.g, `Vence ${t.text}`, t.days <= 2 ? 'soon' : 'muted', 'soon');
+      if (it.kind === 'bills') return billRow(it.g, `Vence ${t.text}`, t.days <= 2 ? 'soon' : 'muted');
       const { a, date } = it, b = accountBalance(a.id);
       return `<button class="item" data-edit-acc="${a.id}">
         ${iconBubble(a.icon, a.color)}
         <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
           <div class="small ${t.days <= (a.card.remindDays ?? 2) ? 'soon' : 'muted'}">Vence ${esc(t.text)}</div>
           ${a.card.installments ? `<div class="small muted">Cuota ${installmentNumber(a.card, date)} de ${a.card.installments.total} · ${money(a.card.installments.amount)}</div>` : ''}</div>
-        <div class="num ${b < 0 ? 'soon' : ''}">${money(b)}</div>
+        <div class="num ${b < 0 ? 'expense' : ''}">${money(b)}</div>
       </button>`;
     }).join('')}</div>` : ''}`;
 }
@@ -687,7 +687,7 @@ function accountRowHtml(a) {
   return `<button class="item" data-edit-acc="${a.id}" style="${a.archived ? 'opacity:.5' : ''}">
     ${iconBubble(a.icon, a.color)}
     <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
-      <div class="small muted">${a.archived ? 'Archivada' : a.investment ? `📈 Inversión${a.investment.items?.length ? ` · ${a.investment.items.length} partidas` : ''}` : pendingBills(a).length ? `🔥 ${pendingBills(a).length} facturas por pagar` : a.card?.installments ? `🗓️ ${a.card.installments.total} cuotas de ${money(a.card.installments.amount)} · día ${a.card.dueDay}` : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div></div>
+      <div class="small muted">${a.archived ? 'Archivada' : a.investment ? `📈 Inversión${a.investment.items?.length ? ` · ${a.investment.items.length} partidas` : ''}` : pendingBills(a).length ? `🔥 ${pendingBills(a).length} facturas por pagar${a.creditLimit ? ` · disponible ${money(cupoAvailable(a.creditLimit, accountBalance(a.id)))}` : ''}` : a.card?.installments ? `🗓️ ${a.card.installments.total} cuotas de ${money(a.card.installments.amount)} · día ${a.card.dueDay}` : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div></div>
     <div class="num ${a.investment ? 'invest' : b < 0 ? 'expense' : ''}">${money(b)}</div>
   </button>`;
 }
@@ -1528,6 +1528,19 @@ function openEntityEditor({ title, entity, isNew, extraFields, onSave, onDelete,
   });
 }
 
+// Cupo de un crédito: disponible = cupo − deuda (el saldo de la cuenta es negativo cuando se debe)
+function cupoAvailable(limit, balance) { return limit + Math.min(0, balance); }
+function cupoText(limit, balance) {
+  if (!limit) return '';
+  const free = cupoAvailable(limit, balance);
+  return `<span class="${free < 0 ? 'expense' : 'income'}">${money(free)}</span> <span class="small muted">de ${money(limit)} · usado ${money(-Math.min(0, balance))}</span>`;
+}
+function updCupo(el, balance) {
+  const sh = el.closest('.sheet'), limit = parseAmount(el.value);
+  const row = sh.querySelector('.cupo-row'); row.hidden = !(limit > 0);
+  sh.querySelector('.cupo-disp').innerHTML = cupoText(limit, balance);
+}
+
 function openAccount(acc) {
   const isNew = !acc;
   const entity = acc || { id: uid(), name: '', icon: 'cash', color: '#1f8a70', ignoreInBalance: false, archived: false, position: S.accounts.length };
@@ -1544,11 +1557,14 @@ function openAccount(acc) {
         <div class="row total"><span class="grow">Total invertido</span><span class="num">${money(d.investment.items.reduce((t, it) => t + it.amount, 0))}</span></div>
       </div>` : ''}
       ${pendingBills(d).length ? `<button type="button" class="field" data-allbills="${d.id}" style="width:100%"><label class="grow" style="width:auto">🔥 Facturas por pagar (${pendingBills(d).length})</label><span class="num expense">${money(-pendingBills(d).reduce((t, b) => t + b.amount, 0))}</span><span style="color:var(--accent)">Ver ›</span></button>` : ''}
+      ${isNew ? '' : `<div class="field"><label>Cupo</label><input data-x="creditLimit" data-num="1" inputmode="numeric" placeholder="Opcional" value="${d.creditLimit ? amountToInput(d.creditLimit) : ''}" oninput="updCupo(this, ${accountBalance(d.id)})"></div>
+      <div class="field cupo-row" ${d.creditLimit ? '' : 'hidden'}><label class="grow" style="width:auto">Cupo disponible</label><span class="num cupo-disp">${cupoText(d.creditLimit, accountBalance(d.id))}</span></div>`}
       <div class="field"><label class="grow" style="width:auto">💳 Es tarjeta de crédito</label><input type="checkbox" data-x="cardOn" ${d.card ? 'checked' : ''}></div>
       <div class="field"><label>Día de pago</label><input data-x="cardDue" inputmode="numeric" pattern="[0-9]*" placeholder="Ej: 5" value="${d.card?.dueDay || ''}"></div>
       <div class="field"><label>Día de facturación</label><input data-x="cardClose" inputmode="numeric" pattern="[0-9]*" placeholder="Opcional" value="${d.card?.closingDay || ''}"></div>`,
     onSave: (d) => {
       const { initial, cardOn, cardDue, cardClose, ...rec } = d;
+      if (!(rec.creditLimit > 0)) delete rec.creditLimit;
       const due = Math.min(31, Math.max(0, parseInt(cardDue, 10) || 0));
       const close = Math.min(31, Math.max(0, parseInt(cardClose, 10) || 0));
       if (cardOn && due) rec.card = { ...(d.card || {}), dueDay: due, closingDay: close || null, remindDays: d.card?.remindDays ?? 2 };
