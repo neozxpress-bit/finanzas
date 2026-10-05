@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '35';
+const APP_VERSION = '36';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -574,7 +574,7 @@ function upcomingPaymentsHtml() {
       const t = dueText(it.date);
       if (it.kind === 'bills') return billRow(it.g, `Vence ${t.text}`, t.days <= 2 ? 'soon' : 'muted');
       const { a, date } = it, b = accountBalance(a.id);
-      return `<button class="item" data-edit-acc="${a.id}">
+      return `<button class="item" data-paycard="${a.id}">
         ${iconBubble(a.icon, a.color)}
         <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
           <div class="small ${t.days <= (a.card.remindDays ?? 2) ? 'soon' : 'muted'}">Vence ${esc(t.text)}</div>
@@ -663,6 +663,57 @@ function openBillsSheet(accId, due) {
       acc.bills = [...acc.bills]; // forzar cambio para sincronizar
       await save(); closeSheet(); render();
       toast(`${chosen.length} factura${chosen.length === 1 ? '' : 's'} pagada${chosen.length === 1 ? '' : 's'}`);
+    };
+  });
+}
+
+// Pagar una tarjeta de crédito (o una cuota de un crédito): gasto "Crédito" en la cuenta que paga y baja la deuda de la tarjeta
+function openCardPaySheet(accId) {
+  const acc = accById(accId); if (!acc?.card) return;
+  const debt = Math.max(0, -accountBalance(accId));
+  const inst = acc.card.installments;
+  const next = nextDueDate(acc.card);
+  const def = inst ? Math.min(inst.amount, debt || inst.amount) : debt;
+  const payers = S.accounts.filter((a) => !a.archived && !a.card && !a.bills && !a.investment && a.id !== accId).sort((a, b) => a.position - b.position);
+  const defPayer = payers.some((a) => a.id === acc.card.payFrom) ? acc.card.payFrom
+    : /santander/i.test(acc.name) ? (payers.find((a) => /comercializadora/i.test(a.name))?.id || payers[0]?.id)
+    : (payers.find((a) => a.id === 'main')?.id || payers[0]?.id);
+  openSheet(`
+    <div class="sheet-head"><button data-a="cancel">Cerrar</button><h3>Pagar ${esc(acc.name)}</h3><span style="width:60px"></span></div>
+    ${next ? `<p class="small muted" style="text-align:center;margin:0 0 10px">Vence el ${esc(dueText(next).text)}${inst ? ` · cuota ${installmentNumber(acc.card, next)} de ${inst.total}` : ''}</p>` : ''}
+    <div class="card list">
+      <div class="field"><label class="grow" style="width:auto">${inst ? 'Deuda total' : 'Deuda de la tarjeta'}</label><span class="num expense" style="margin-left:auto">${money(-debt)}</span></div>
+      <div class="field"><label>Monto a pagar</label><input data-f="amount" inputmode="numeric" value="${def ? amountToInput(def) : ''}" placeholder="$0"></div>
+    </div>
+    <div class="chips" style="margin:10px 0 0">
+      ${inst ? `<button type="button" data-amt="${Math.min(inst.amount, debt || inst.amount)}">Cuota · ${money(inst.amount)}</button>` : ''}
+      ${debt ? `<button type="button" data-amt="${debt}">Total · ${money(debt)}</button>` : ''}
+    </div>
+    <div class="card list" style="margin-top:12px">
+      <div class="field"><label>Pagar desde</label><select data-f="payer">${payers.map((a) => `<option value="${a.id}" ${a.id === defPayer ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>Fecha de pago</label><input type="date" data-f="date" value="${isoDate(new Date())}"></div>
+    </div>
+    <button class="btn save-btn" data-a="pay">Registrar pago · ${money(def)}</button>
+    <p class="small muted" style="text-align:center">Se registra como gasto "Crédito" en la cuenta que paga y baja la deuda de ${esc(acc.name)}.</p>`, (sh) => {
+    const amt = () => parseAmount($('[data-f="amount"]', sh).value);
+    const upd = () => { $('[data-a="pay"]', sh).textContent = `Registrar pago · ${money(amt())}`; };
+    sh.oninput = (e) => { if (e.target.dataset.f === 'amount') upd(); };
+    sh.onclick = async (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.a === 'cancel') return closeSheet();
+      if (b.dataset.amt) { $('[data-f="amount"]', sh).value = amountToInput(+b.dataset.amt); return upd(); }
+      if (b.dataset.a !== 'pay') return;
+      const amount = amt(); if (!(amount > 0)) return toast('Ingresa el monto a pagar');
+      const payer = $('[data-f="payer"]', sh).value, date = $('[data-f="date"]', sh).value || isoDate(new Date());
+      const cat = S.categories.find((c) => c.type === 'expense' && !c.archived && /^crédito$/i.test(c.name))?.id || 'other_expense';
+      const now = new Date().toISOString();
+      const n = inst && next ? ` (cuota ${installmentNumber(acc.card, next)} de ${inst.total})` : '';
+      S.transactions.push(
+        { id: uid(), type: 'expense', amount, date, accountId: payer, categoryId: cat, note: `Pago ${acc.name}${n}`, tags: [acc.name], photos: [], created: now, modified: now },
+        { id: uid(), type: 'income', amount, date, accountId: accId, categoryId: ADJUST_CAT.id, adjust: true, note: `Pago recibido desde ${accById(payer)?.name || ''}`, tags: [acc.name], photos: [], created: now, modified: now });
+      if (acc.card.payFrom !== payer) acc.card = { ...acc.card, payFrom: payer };
+      await save(); closeSheet(); render();
+      toast(`Pago de ${money(amount)} registrado`);
     };
   });
 }
@@ -980,6 +1031,7 @@ document.addEventListener('click', (e) => {
     const hint = t.querySelector('[data-group-hint]'); if (hint) hint.textContent = open ? 'Ocultar' : 'Ver detalle';
     return;
   }
+  if (t.dataset.paycard) return openCardPaySheet(t.dataset.paycard);
   if (t.dataset.bills) { const [aid, due] = t.dataset.bills.split('|'); return openBillsSheet(aid, due); }
   if (t.dataset.role === 'new-transfer') return openTransfer();
   if (t.dataset.role === 'cats') return openCategories(t.dataset.v);
@@ -1516,6 +1568,7 @@ function openEntityEditor({ title, entity, isNew, extraFields, onSave, onDelete,
       if (b.dataset.a === 'cancel') return closeSheet();
       if (b.dataset.adjust) { closeSheet(); return openBalanceEditor(b.dataset.adjust); }
       if (b.dataset.allbills) { closeSheet(); return openAllBillsSheet(b.dataset.allbills); }
+      if (b.dataset.paycard) { closeSheet(); return openCardPaySheet(b.dataset.paycard); }
       if (b.dataset.color) { collect(sh); d.color = b.dataset.color; const y = sh.scrollTop; draw(sh); sh.scrollTop = y; return; }
       if (b.dataset.icon) { collect(sh); d.icon = b.dataset.icon; const y = sh.scrollTop; draw(sh); sh.scrollTop = y; return; }
       if (b.dataset.a === 'delete') { if (await onDelete(d)) { await save(); closeSheet(); render(); } return; }
@@ -1557,6 +1610,7 @@ function openAccount(acc) {
         <div class="row total"><span class="grow">Total invertido</span><span class="num">${money(d.investment.items.reduce((t, it) => t + it.amount, 0))}</span></div>
       </div>` : ''}
       ${pendingBills(d).length ? `<button type="button" class="field" data-allbills="${d.id}" style="width:100%"><label class="grow" style="width:auto">🔥 Facturas por pagar (${pendingBills(d).length})</label><span class="num expense">${money(-pendingBills(d).reduce((t, b) => t + b.amount, 0))}</span><span style="color:var(--accent)">Ver ›</span></button>` : ''}
+      ${!isNew && d.card?.dueDay ? `<button type="button" class="field" data-paycard="${d.id}" style="width:100%"><label class="grow" style="width:auto">💳 Pagar ${d.card.installments ? 'cuota' : 'tarjeta'}</label><span style="color:var(--accent)">Pagar ›</span></button>` : ''}
       ${isNew ? '' : `<div class="field"><label>Cupo</label><input data-x="creditLimit" data-num="1" inputmode="numeric" placeholder="Opcional" value="${d.creditLimit ? amountToInput(d.creditLimit) : ''}" oninput="updCupo(this, ${accountBalance(d.id)})"></div>
       <div class="field cupo-row" ${d.creditLimit ? '' : 'hidden'}><label class="grow" style="width:auto">Cupo disponible</label><span class="num cupo-disp">${cupoText(d.creditLimit, accountBalance(d.id))}</span></div>`}
       <div class="field"><label class="grow" style="width:auto">💳 Es tarjeta de crédito</label><input type="checkbox" data-x="cardOn" ${d.card ? 'checked' : ''}></div>
