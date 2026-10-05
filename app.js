@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '37';
+const APP_VERSION = '38';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -522,6 +522,20 @@ function nextDueDate(card, from = new Date()) {
   }
   return null;
 }
+// ¿Ya se pagó el ciclo que vence en "due"? Busca un pago a la cuenta entre el vencimiento anterior y este
+// (ingresos normales, ingresos "Pago ..." y transferencias; los ajustes de saldo no cuentan como pago)
+function cyclePaid(acc, due) {
+  const from = isoDate(new Date(due.getFullYear(), due.getMonth() - 1, due.getDate() + 1)), to = isoDate(due);
+  const inWin = (d) => d >= from && d <= to;
+  return S.transactions.some((t) => t.accountId === acc.id && t.type === 'income' && inWin(t.date) && (!t.adjust || /^pago/i.test(t.note || '')))
+    || S.transfers.some((t) => t.toId === acc.id && inWin(t.date));
+}
+// Próximo vencimiento de una tarjeta, saltando el mes si ese ciclo ya está pagado
+function nextAccountDue(acc) {
+  const d = nextDueDate(acc.card);
+  if (!d || !cyclePaid(acc, d)) return d;
+  return nextDueDate(acc.card, new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1));
+}
 function dueText(date) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const days = Math.round((date - today) / 86400000);
@@ -548,7 +562,7 @@ function billGroups() {
 function upcomingPaymentsHtml() {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const items = S.accounts.filter((a) => !a.archived && a.card?.dueDay)
-    .map((a) => ({ kind: 'card', a, date: nextDueDate(a.card) })).filter((x) => x.date);
+    .map((a) => ({ kind: 'card', a, date: nextAccountDue(a) })).filter((x) => x.date);
   const groups = billGroups();
   const overdue = groups.filter((g) => parseDate(g.due) < today);
   const upcoming = groups.filter((g) => parseDate(g.due) >= today).slice(0, 6);
@@ -672,7 +686,7 @@ function openCardPaySheet(accId) {
   const acc = accById(accId); if (!acc?.card) return;
   const debt = Math.max(0, -accountBalance(accId));
   const inst = acc.card.installments;
-  const next = nextDueDate(acc.card);
+  const next = nextAccountDue(acc);
   const def = inst ? Math.min(inst.amount, debt || inst.amount) : debt;
   const payers = S.accounts.filter((a) => !a.archived && !a.card && !a.bills && !a.investment && a.id !== accId).sort((a, b) => a.position - b.position);
   const defPayer = payers.some((a) => a.id === acc.card.payFrom) ? acc.card.payFrom
