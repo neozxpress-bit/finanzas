@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '39';
+const APP_VERSION = '40';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -779,7 +779,7 @@ function viewAccounts() {
       ${upcomingPaymentsHtml()}
       <h2>Mis cuentas</h2>
       <div class="card list">
-        ${accs.filter((a) => !isCredit(a) || a.archived).map(accountRowHtml).join('')}
+        ${accs.filter((a) => !isCredit(a) && !a.archived).map(accountRowHtml).join('')}
       </div>
       ${ACCOUNT_GROUPS.map((g) => {
         const list = accs.filter((a) => g.test(a) && !a.archived);
@@ -796,6 +796,19 @@ function viewAccounts() {
           <div class="group-body" data-group-body="${g.key}" ${open ? '' : 'hidden'}>${list.map(accountRowHtml).join('')}</div>
         </div>`;
       }).join('')}
+      ${(() => {
+        const arch = accs.filter((a) => a.archived); if (!arch.length) return '';
+        const open = groupOpen('archived');
+        return `<div class="card list" style="margin-top:12px;opacity:.75">
+          <button class="item group" data-group-toggle="archived">
+            <span class="icon" style="background:#3b3f45">🗄️</span>
+            <div class="grow"><div class="ellipsis">Archivadas (${arch.length})</div>
+              <div class="small muted" data-group-hint>${open ? 'Ocultar' : 'Ver detalle'}</div></div>
+            <span class="chev ${open ? 'up' : ''}">${SVG.chev}</span>
+          </button>
+          <div class="group-body" data-group-body="archived" ${open ? '' : 'hidden'}>${arch.map(accountRowHtml).join('')}</div>
+        </div>`;
+      })()}
     </div>`;
 }
 
