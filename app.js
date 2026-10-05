@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '36';
+const APP_VERSION = '37';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -683,6 +683,7 @@ function openCardPaySheet(accId) {
     ${next ? `<p class="small muted" style="text-align:center;margin:0 0 10px">Vence el ${esc(dueText(next).text)}${inst ? ` · cuota ${installmentNumber(acc.card, next)} de ${inst.total}` : ''}</p>` : ''}
     <div class="card list">
       <div class="field"><label class="grow" style="width:auto">${inst ? 'Deuda total' : 'Deuda de la tarjeta'}</label><span class="num expense" style="margin-left:auto">${money(-debt)}</span></div>
+      ${acc.creditLimit ? `<div class="field"><label class="grow" style="width:auto">Cupo disponible</label><span class="num" style="margin-left:auto;text-align:right">${cupoText(acc.creditLimit, -debt)}</span></div>` : ''}
       <div class="field"><label>Monto a pagar</label><input data-f="amount" inputmode="numeric" value="${def ? amountToInput(def) : ''}" placeholder="$0"></div>
     </div>
     <div class="chips" style="margin:10px 0 0">
@@ -738,7 +739,8 @@ function accountRowHtml(a) {
   return `<button class="item" data-edit-acc="${a.id}" style="${a.archived ? 'opacity:.5' : ''}">
     ${iconBubble(a.icon, a.color)}
     <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
-      <div class="small muted">${a.archived ? 'Archivada' : a.investment ? `📈 Inversión${a.investment.items?.length ? ` · ${a.investment.items.length} partidas` : ''}` : pendingBills(a).length ? `🔥 ${pendingBills(a).length} facturas por pagar${a.creditLimit ? ` · disponible ${money(cupoAvailable(a.creditLimit, accountBalance(a.id)))}` : ''}` : a.card?.installments ? `🗓️ ${a.card.installments.total} cuotas de ${money(a.card.installments.amount)} · día ${a.card.dueDay}` : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div></div>
+      <div class="small muted">${a.archived ? 'Archivada' : a.investment ? `📈 Inversión${a.investment.items?.length ? ` · ${a.investment.items.length} partidas` : ''}` : pendingBills(a).length ? `🔥 ${pendingBills(a).length} facturas por pagar` : a.card?.installments ? `🗓️ ${a.card.installments.total} cuotas de ${money(a.card.installments.amount)} · día ${a.card.dueDay}` : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div>
+      ${!a.archived && a.creditLimit ? `<div class="small">Disponible ${cupoText(a.creditLimit, accountBalance(a.id))}</div>` : ''}</div>
     <div class="num ${a.investment ? 'invest' : b < 0 ? 'expense' : ''}">${money(b)}</div>
   </button>`;
 }
