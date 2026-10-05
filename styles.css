@@ -33,6 +33,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .muted { color: var(--muted); }
 .small { font-size: 13px; }
 .expense { color: var(--expense); }
+.soon { color: #4da3ff; }
 .income { color: var(--income); }
 .row { display: flex; align-items: center; gap: 12px; }
 .grow { flex: 1; min-width: 0; }

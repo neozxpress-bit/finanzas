@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '33';
+const APP_VERSION = '34';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -556,12 +556,12 @@ function upcomingPaymentsHtml() {
   items.sort((x, y) => x.date - y.date);
   if (!items.length && !overdue.length) return '';
   const vendor = (g) => g.bills[0]?.vendor || g.a.name;
-  const billRow = (g, label, cls) => `<button class="item" data-bills="${g.a.id}|${g.due}">
+  const billRow = (g, label, cls, amtCls = 'expense') => `<button class="item" data-bills="${g.a.id}|${g.due}">
       <span class="icon" style="background:#c0392b">🔥</span>
       <div class="grow"><div class="ellipsis">${esc(vendor(g))} · ${g.bills.length} factura${g.bills.length === 1 ? '' : 's'}</div>
         <div class="small ${cls}">${esc(label)}</div>
         <div class="small muted ellipsis">N° ${g.bills.map((b) => esc(b.doc)).join(', ')}</div></div>
-      <div class="num expense">${money(-g.total)}</div>
+      <div class="num ${amtCls}">${money(-g.total)}</div>
     </button>`;
   const overdueTotal = overdue.reduce((t, g) => t + g.total, 0);
   return `${overdue.length ? `<h2 class="expense">Vencidas · ${money(-overdueTotal)}</h2>
@@ -569,17 +569,17 @@ function upcomingPaymentsHtml() {
       const days = Math.round((today - parseDate(g.due)) / 86400000);
       return billRow(g, `Venció hace ${days} día${days === 1 ? '' : 's'} (${shortDM(g.due)})`, 'expense');
     }).join('')}</div>` : ''}
-    ${items.length ? `<h2>Próximos pagos</h2>
+    ${items.length ? `<h2 class="soon">Próximos pagos</h2>
     <div class="card list">${items.map((it) => {
       const t = dueText(it.date);
-      if (it.kind === 'bills') return billRow(it.g, `Vence ${t.text}`, t.days <= 2 ? 'expense' : 'muted');
+      if (it.kind === 'bills') return billRow(it.g, `Vence ${t.text}`, t.days <= 2 ? 'soon' : 'muted', 'soon');
       const { a, date } = it, b = accountBalance(a.id);
       return `<button class="item" data-edit-acc="${a.id}">
         ${iconBubble(a.icon, a.color)}
         <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
-          <div class="small ${t.days <= (a.card.remindDays ?? 2) ? 'expense' : 'muted'}">Vence ${esc(t.text)}</div>
+          <div class="small ${t.days <= (a.card.remindDays ?? 2) ? 'soon' : 'muted'}">Vence ${esc(t.text)}</div>
           ${a.card.installments ? `<div class="small muted">Cuota ${installmentNumber(a.card, date)} de ${a.card.installments.total} · ${money(a.card.installments.amount)}</div>` : ''}</div>
-        <div class="num ${b < 0 ? 'expense' : ''}">${money(b)}</div>
+        <div class="num ${b < 0 ? 'soon' : ''}">${money(b)}</div>
       </button>`;
     }).join('')}</div>` : ''}`;
 }
