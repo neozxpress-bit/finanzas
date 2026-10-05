@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '40';
+const APP_VERSION = '41';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -572,7 +572,7 @@ function upcomingPaymentsHtml() {
   if (!items.length && !overdue.length) return '';
   const vendor = (g) => g.bills[0]?.vendor || g.a.name;
   const billRow = (g, label, cls, amtCls = 'expense') => `<button class="item" data-bills="${g.a.id}|${g.due}">
-      <span class="icon" style="background:#c0392b">🔥</span>
+      <span class="icon" style="background:#1e6fd9">💧</span>
       <div class="grow"><div class="ellipsis">${esc(vendor(g))} · ${g.bills.length} factura${g.bills.length === 1 ? '' : 's'}</div>
         <div class="small ${cls}">${esc(label)}</div>
         <div class="small muted ellipsis">N° ${g.bills.map((b) => esc(b.doc)).join(', ')}</div></div>
@@ -618,7 +618,7 @@ function openAllBillsSheet(accId) {
     <div class="card list" style="margin-top:12px">${groups.map((g) => {
       const late = g.due < today;
       return `<button class="item" data-group="${g.due}">
-        <span class="icon sm" style="background:${late ? '#c0392b' : '#ec8207'}">${late ? '!' : '🔥'}</span>
+        <span class="icon sm" style="background:${late ? '#c0392b' : '#1e6fd9'}">${late ? '!' : '💧'}</span>
         <div class="grow"><div>${late ? 'Vencida' : 'Vence'} ${esc(dueText(parseDate(g.due)).text)}</div>
           <div class="small muted ellipsis">N° ${g.bills.map((b) => esc(b.doc)).join(', ')}</div></div>
         <div class="num ${late ? 'expense' : ''}">${money(g.total)}</div></button>`;
@@ -754,7 +754,7 @@ function accountRowHtml(a) {
   return `<button class="item" data-edit-acc="${a.id}" style="${a.archived ? 'opacity:.5' : ''}">
     ${iconBubble(a.icon, a.color)}
     <div class="grow"><div class="ellipsis">${esc(a.name)}</div>
-      <div class="small muted">${a.archived ? 'Archivada' : a.investment ? `📈 Inversión${a.investment.items?.length ? ` · ${a.investment.items.length} partidas` : ''}` : pendingBills(a).length ? `🔥 ${pendingBills(a).length} facturas por pagar` : a.card?.installments ? `🗓️ ${a.card.installments.total} cuotas de ${money(a.card.installments.amount)} · día ${a.card.dueDay}` : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div>
+      <div class="small muted">${a.archived ? 'Archivada' : a.investment ? `📈 Inversión${a.investment.items?.length ? ` · ${a.investment.items.length} partidas` : ''}` : pendingBills(a).length ? `💧 ${pendingBills(a).length} facturas por pagar` : a.card?.installments ? `🗓️ ${a.card.installments.total} cuotas de ${money(a.card.installments.amount)} · día ${a.card.dueDay}` : a.card?.dueDay ? `💳 Paga el ${a.card.dueDay} de cada mes` : a.ignoreInBalance ? 'No se suma al total' : 'Se suma al total'}</div>
       ${!a.archived && a.creditLimit ? `<div class="small">Disponible ${cupoText(a.creditLimit, accountBalance(a.id))}</div>` : ''}</div>
     <div class="num ${a.investment ? 'invest' : b < 0 ? 'expense' : ''}">${money(b)}</div>
   </button>`;
@@ -1639,7 +1639,7 @@ function openAccount(acc) {
         ${d.investment.items.map((it) => `<div class="row"><span class="grow">${esc(it.label)}</span><span class="num">${money(it.amount)}</span></div>`).join('')}
         <div class="row total"><span class="grow">Total invertido</span><span class="num">${money(d.investment.items.reduce((t, it) => t + it.amount, 0))}</span></div>
       </div>` : ''}
-      ${pendingBills(d).length ? `<button type="button" class="field" data-allbills="${d.id}" style="width:100%"><label class="grow" style="width:auto">🔥 Facturas por pagar (${pendingBills(d).length})</label><span class="num expense">${money(-pendingBills(d).reduce((t, b) => t + b.amount, 0))}</span><span style="color:var(--accent)">Ver ›</span></button>` : ''}
+      ${pendingBills(d).length ? `<button type="button" class="field" data-allbills="${d.id}" style="width:100%"><label class="grow" style="width:auto">💧 Facturas por pagar (${pendingBills(d).length})</label><span class="num expense">${money(-pendingBills(d).reduce((t, b) => t + b.amount, 0))}</span><span style="color:var(--accent)">Ver ›</span></button>` : ''}
       ${!isNew && d.card?.dueDay ? `<button type="button" class="field" data-paycard="${d.id}" style="width:100%"><label class="grow" style="width:auto">💳 Pagar ${d.card.installments ? 'cuota' : 'tarjeta'}</label><span style="color:var(--accent)">Pagar ›</span></button>` : ''}
       ${isNew ? '' : `<div class="field"><label>Cupo</label><input data-x="creditLimit" data-num="1" inputmode="numeric" placeholder="Opcional" value="${d.creditLimit ? amountToInput(d.creditLimit) : ''}" oninput="updCupo(this, ${accountBalance(d.id)})"></div>
       <div class="field cupo-row" ${d.creditLimit ? '' : 'hidden'}><label class="grow" style="width:auto">Cupo disponible</label><span class="num cupo-disp">${cupoText(d.creditLimit, accountBalance(d.id))}</span></div>`}
