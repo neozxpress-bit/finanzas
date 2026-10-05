@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '43';
+const APP_VERSION = '44';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -579,13 +579,14 @@ function upcomingPaymentsHtml() {
       <div class="num ${amtCls}">${money(-g.total)}</div>
     </button>`;
   const overdueTotal = overdue.reduce((t, g) => t + g.total, 0);
-  return `${overdue.length ? `<h2 class="expense">Vencidas · ${money(-overdueTotal)}</h2>
-    <div class="card list">${overdue.map((g) => {
+  const head = (key, cls, label) => `<h2><button class="sec-head ${cls}" data-group-toggle="${key}"><span class="grow">${label}</span><span class="chev ${groupOpen(key) ? 'up' : ''}">${SVG.chev}</span></button></h2>`;
+  return `${overdue.length ? `${head('overdue', 'expense', `Vencidas · ${money(-overdueTotal)}`)}
+    <div class="card list" data-group-body="overdue" ${groupOpen('overdue') ? '' : 'hidden'}>${overdue.map((g) => {
       const days = Math.round((today - parseDate(g.due)) / 86400000);
       return billRow(g, `Venció hace ${days} día${days === 1 ? '' : 's'} (${shortDM(g.due)})`, 'expense');
     }).join('')}</div>` : ''}
-    ${items.length ? `<h2 class="soon">Próximos pagos</h2>
-    <div class="card list">${items.map((it) => {
+    ${items.length ? `${head('upcoming', 'soon', `Próximos pagos (${items.length})`)}
+    <div class="card list" data-group-body="upcoming" ${groupOpen('upcoming') ? '' : 'hidden'}>${items.map((it) => {
       const t = dueText(it.date);
       if (it.kind === 'bills') return billRow(it.g, `Vence ${t.text}`, t.days <= 2 ? 'soon' : 'muted');
       const { a, date } = it, b = accountBalance(a.id);
@@ -735,7 +736,8 @@ function openCardPaySheet(accId) {
 }
 
 // Grupo desplegable de tarjetas (se recuerda abierto/cerrado en este dispositivo)
-function groupOpen(g) { try { return localStorage.getItem(`finanzas-${g}-open`) === '1'; } catch { return false; } }
+const OPEN_BY_DEFAULT = new Set(['overdue', 'upcoming']);
+function groupOpen(g) { const def = OPEN_BY_DEFAULT.has(g); try { const v = localStorage.getItem(`finanzas-${g}-open`); return v === null ? def : v === '1'; } catch { return def; } }
 function setGroupOpen(g, v) { try { localStorage.setItem(`finanzas-${g}-open`, v ? '1' : '0'); } catch {} }
 const cardsGroupOpen = () => groupOpen('cards');
 const setCardsGroupOpen = (v) => setGroupOpen('cards', v);

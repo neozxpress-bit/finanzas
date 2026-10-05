@@ -113,6 +113,7 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .cat-head .name { flex: 1; min-width: 0; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cat-head .pct { color: var(--muted); font-size: 14px; white-space: nowrap; }
 .cat-head .amt { font-size: 15px; white-space: nowrap; }
+.sec-head { display: flex; align-items: center; gap: 8px; width: 100%; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; }
 .chev { width: 26px; height: 26px; border-radius: 50%; background: #0b1a12; display: grid; place-items: center; flex: none; }
 .chev svg { width: 14px; height: 14px; stroke: var(--accent); stroke-width: 2.4; fill: none; transition: transform .15s; }
 .cat-row.open .chev svg { transform: rotate(180deg); }
