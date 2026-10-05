@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '42';
+const APP_VERSION = '43';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -156,7 +156,7 @@ const pad2 = (n) => String(n).padStart(2, '0');
 const isoDate = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const parseDate = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
 // Ícono desconocido: si ya es un emoji se muestra tal cual; si es un nombre, un ícono genérico
-const icon = (key) => ICONS[key] || (key && /\p{Extended_Pictographic}/u.test(key) ? key : '🏷️');
+const icon = (key) => (typeof key === 'string' && key.startsWith('letter:') ? `<b class="icon-letter">${esc(key.slice(7))}</b>` : null) || ICONS[key] || (key && /\p{Extended_Pictographic}/u.test(key) ? key : '🏷️');
 
 function currencySymbol() { return S.currency === 'CLP' ? 'CLP$' : S.currency; }
 function money(n, { sign = false } = {}) {
@@ -1591,10 +1591,13 @@ function openEntityEditor({ title, entity, isNew, extraFields, onSave, onDelete,
       <div class="card color-grid">${COLORS.map((c) => `<button data-color="${c}" style="background:${c}" class="${d.color === c ? 'sel' : ''}"></button>`).join('')}</div>
       <h2>Ícono</h2>
       <div class="card icon-grid">${ICON_KEYS.map((k) => `<button data-icon="${k}" class="${d.icon === k ? 'sel' : ''}">${ICONS[k]}</button>`).join('')}</div>
+      <div class="card list" style="margin-top:8px"><div class="field"><label class="grow" style="width:auto">O usar una letra</label><input type="text" data-f="letter" maxlength="2" placeholder="Ej: M" style="max-width:90px;text-align:right" value="${String(d.icon || '').startsWith('letter:') ? esc(d.icon.slice(7)) : ''}"></div></div>
       ${isNew || !onDelete ? '' : `<button class="btn danger" data-a="delete" style="margin-top:12px">${deleteLabel}</button>`}`;
   };
   const collect = (sh) => {
     d.name = $('[data-f="name"]', sh).value.trim();
+    const letter = ($('[data-f="letter"]', sh)?.value || '').trim().toUpperCase();
+    if (letter) d.icon = `letter:${letter}`; else if (String(d.icon || '').startsWith('letter:')) d.icon = 'cash';
     sh.querySelectorAll('[data-x]').forEach((el) => { d[el.dataset.x] = el.type === 'checkbox' ? el.checked : el.dataset.num ? parseAmount(el.value) : el.value; });
   };
   openSheet('', (sh) => {
