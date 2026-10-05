@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '38';
+const APP_VERSION = '39';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -445,8 +445,9 @@ function viewList() {
     ${pageHead('Movimientos')}
     <div class="wrap">
       <input class="search" type="search" placeholder="Buscar nota, etiqueta, categoría o monto" value="${esc(UI.search)}" data-role="search">
-      <div>
+      <div class="chip-row">
         <button class="filter-chip" data-role="pick-account">${esc(UI.account === 'all' ? 'Todas las cuentas' : accById(UI.account)?.name)} ▾</button>
+        ${(() => { const bal = UI.account === 'all' ? totalBalance() : accountBalance(UI.account); return `<span class="chip-balance num ${bal < 0 ? 'expense' : ''}">${money(bal)}</span>`; })()}
         ${fc ? `<button class="filter-chip" data-role="clear-cat">${icon(fc.icon)} ${esc(fc.name)} ✕</button>` : ''}
         ${UI.tagFilter ? `<button class="filter-chip" data-role="clear-tag"># ${esc(UI.tagFilter === NO_TAG ? 'Sin etiqueta' : UI.tagFilter)} ✕</button>` : ''}
       </div>

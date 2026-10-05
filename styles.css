@@ -138,6 +138,8 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: v
 .day-head span:first-child:first-letter { text-transform: uppercase; }
 .tag { display: inline-block; font-size: 11px; background: var(--chip); color: #d6d7cf; padding: 1px 7px; border-radius: 999px; margin-right: 4px; }
 .search { width: 100%; padding: 12px 14px; border-radius: 12px; border: 0; background: var(--card); outline: none; margin-top: 14px; }
+.chip-row { display: flex; flex-wrap: wrap; align-items: center; }
+.chip-balance { order: 9; margin: 10px 0 0 auto; font-size: 24px; font-weight: 700; white-space: nowrap; }
 .filter-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--chip); padding: 6px 12px; border-radius: 999px; font-size: 13px; margin: 10px 6px 0 0; }
 .list-period { margin-top: 12px; padding: 0 8px 8px; }
 
