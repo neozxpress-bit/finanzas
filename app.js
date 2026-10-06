@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '44';
+const APP_VERSION = '45';
 
 /* =========================================================
    Finanzas — registro personal de gastos e ingresos
@@ -568,8 +568,18 @@ function upcomingPaymentsHtml() {
   const overdue = groups.filter((g) => parseDate(g.due) < today);
   const upcoming = groups.filter((g) => parseDate(g.due) >= today).slice(0, 6);
   for (const g of upcoming) items.push({ kind: 'bills', g, a: g.a, date: parseDate(g.due) });
+  const sched = scheduledItems();
+  const schedLate = sched.filter((x) => parseDate(x.p.due) < today);
+  for (const x of sched.filter((x) => parseDate(x.p.due) >= today)) items.push({ kind: 'sched', ...x, date: parseDate(x.p.due) });
   items.sort((x, y) => x.date - y.date);
-  if (!items.length && !overdue.length) return '';
+  if (!items.length && !overdue.length && !schedLate.length) return '';
+  const schedRow = ({ a, p }, label, cls) => `<button class="item" data-sched="${a.id}|${p.id}">
+      <span class="icon" style="background:#7d5a14">🧾</span>
+      <div class="grow"><div class="ellipsis">${esc(p.label)}</div>
+        <div class="small ${cls}">${esc(label)}</div>
+        <div class="small muted ellipsis">Se paga desde ${esc(a.name)}</div></div>
+      <div class="num expense">${p.amount ? money(-p.amount) : '<span class="small muted">Por definir</span>'}</div>
+    </button>`;
   const vendor = (g) => g.bills[0]?.vendor || g.a.name;
   const billRow = (g, label, cls, amtCls = 'expense') => `<button class="item" data-bills="${g.a.id}|${g.due}">
       <span class="icon" style="background:#1e6fd9">💧</span>
@@ -578,17 +588,16 @@ function upcomingPaymentsHtml() {
         <div class="small muted ellipsis">N° ${g.bills.map((b) => esc(b.doc)).join(', ')}</div></div>
       <div class="num ${amtCls}">${money(-g.total)}</div>
     </button>`;
-  const overdueTotal = overdue.reduce((t, g) => t + g.total, 0);
+  const overdueTotal = overdue.reduce((t, g) => t + g.total, 0) + schedLate.reduce((t, x) => t + (x.p.amount || 0), 0);
   const head = (key, cls, label) => `<h2><button class="sec-head ${cls}" data-group-toggle="${key}"><span class="grow">${label}</span><span class="chev ${groupOpen(key) ? 'up' : ''}">${SVG.chev}</span></button></h2>`;
-  return `${overdue.length ? `${head('overdue', 'expense', `Vencidas · ${money(-overdueTotal)}`)}
-    <div class="card list" data-group-body="overdue" ${groupOpen('overdue') ? '' : 'hidden'}>${overdue.map((g) => {
-      const days = Math.round((today - parseDate(g.due)) / 86400000);
-      return billRow(g, `Venció hace ${days} día${days === 1 ? '' : 's'} (${shortDM(g.due)})`, 'expense');
-    }).join('')}</div>` : ''}
+  const lateLabel = (due) => { const days = Math.round((today - parseDate(due)) / 86400000); return `Venció hace ${days} día${days === 1 ? '' : 's'} (${shortDM(due)})`; };
+  return `${overdue.length || schedLate.length ? `${head('overdue', 'expense', `Vencidas · ${money(-overdueTotal)}`)}
+    <div class="card list" data-group-body="overdue" ${groupOpen('overdue') ? '' : 'hidden'}>${schedLate.map((x) => schedRow(x, lateLabel(x.p.due), 'expense')).join('')}${overdue.map((g) => billRow(g, lateLabel(g.due), 'expense')).join('')}</div>` : ''}
     ${items.length ? `${head('upcoming', 'soon', `Próximos pagos (${items.length})`)}
     <div class="card list" data-group-body="upcoming" ${groupOpen('upcoming') ? '' : 'hidden'}>${items.map((it) => {
       const t = dueText(it.date);
       if (it.kind === 'bills') return billRow(it.g, `Vence ${t.text}`, t.days <= 2 ? 'soon' : 'muted');
+      if (it.kind === 'sched') return schedRow(it, `Pagar hasta el ${t.text}`, t.days <= 2 ? 'soon' : 'muted');
       const { a, date } = it, b = accountBalance(a.id);
       return `<button class="item" data-paycard="${a.id}">
         ${iconBubble(a.icon, a.color)}
@@ -598,6 +607,50 @@ function upcomingPaymentsHtml() {
         <div class="num ${b < 0 ? 'expense' : ''}">${money(b)}</div>
       </button>`;
     }).join('')}</div>` : ''}`;
+}
+
+// Pagos programados de una cuenta (a.scheduled): {id, label, amount, due, categoryId, tags, paid}
+function scheduledItems() {
+  const out = [];
+  for (const a of S.accounts) {
+    if (a.archived || !Array.isArray(a.scheduled)) continue;
+    for (const p of a.scheduled) if (!p.paid) out.push({ a, p });
+  }
+  return out.sort((x, y) => x.p.due.localeCompare(y.p.due));
+}
+function openScheduledSheet(accId, pid) {
+  const acc = accById(accId), p = acc?.scheduled?.find((x) => x.id === pid); if (!p) return;
+  const payers = S.accounts.filter((a) => !a.archived && !a.card && !a.bills && !a.investment).sort((a, b) => a.position - b.position);
+  const cats = S.categories.filter((c) => c.type === 'expense' && !c.archived).sort((a, b) => a.name.localeCompare(b.name));
+  openSheet(`
+    <div class="sheet-head"><button data-a="cancel">Cerrar</button><h3>${esc(p.label)}</h3><span style="width:60px"></span></div>
+    <p class="small muted" style="text-align:center;margin:0 0 10px">Pagar hasta el ${esc(dueText(parseDate(p.due)).text)}</p>
+    <div class="card list">
+      <div class="field"><label>Monto</label><input data-f="amount" inputmode="numeric" value="${p.amount ? amountToInput(p.amount) : ''}" placeholder="$0"></div>
+      <div class="field"><label>Categoría</label><select data-f="cat">${cats.map((c) => `<option value="${c.id}" ${c.id === p.categoryId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>Pagar desde</label><select data-f="payer">${payers.map((a) => `<option value="${a.id}" ${a.id === accId ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>Fecha de pago</label><input type="date" data-f="date" value="${isoDate(new Date())}"></div>
+    </div>
+    <button class="btn save-btn" data-a="pay">Marcar pagado</button>
+    <button class="btn secondary" data-a="del" style="margin-top:8px">Quitar este pago</button>
+    <p class="small muted" style="text-align:center">Al marcarlo pagado se registra como gasto en la cuenta elegida.</p>`, (sh) => {
+    sh.onclick = async (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.a === 'cancel') return closeSheet();
+      if (b.dataset.a === 'del') {
+        if (!confirm(`¿Quitar "${p.label}" de los pagos?`)) return;
+        acc.scheduled = acc.scheduled.filter((x) => x.id !== pid);
+        await save(); closeSheet(); render(); return;
+      }
+      if (b.dataset.a !== 'pay') return;
+      const amount = parseAmount($('[data-f="amount"]', sh).value); if (!(amount > 0)) return toast('Ingresa el monto');
+      const date = $('[data-f="date"]', sh).value || isoDate(new Date()), now = new Date().toISOString();
+      S.transactions.push({ id: uid(), type: 'expense', amount, date, accountId: $('[data-f="payer"]', sh).value, categoryId: $('[data-f="cat"]', sh).value, note: p.label, tags: p.tags || [], photos: [], created: now, modified: now });
+      acc.scheduled = acc.scheduled.map((x) => (x.id === pid ? { ...x, amount, paid: true, paidDate: date } : x));
+      await save(); closeSheet(); render();
+      toast(`${p.label} pagado`);
+    };
+  });
 }
 
 const pendingBills = (a) => (Array.isArray(a?.bills) ? a.bills.filter((b) => !b.paid) : []);
@@ -1070,6 +1123,7 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (t.dataset.paycard) return openCardPaySheet(t.dataset.paycard);
+  if (t.dataset.sched) { const [aid, pid] = t.dataset.sched.split('|'); return openScheduledSheet(aid, pid); }
   if (t.dataset.bills) { const [aid, due] = t.dataset.bills.split('|'); return openBillsSheet(aid, due); }
   if (t.dataset.role === 'new-transfer') return openTransfer();
   if (t.dataset.role === 'cats') return openCategories(t.dataset.v);
